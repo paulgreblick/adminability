@@ -1,0 +1,56 @@
+@import "tailwindcss";
+@plugin "@tailwindcss/typography";
+
+/* Dark mode configuration */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Custom dark mode styles */
+.dark body {
+    background-color: #111827;
+}
+
+/* Dark mode form inputs */
+.dark input:not([type="checkbox"]):not([type="radio"]),
+.dark select,
+.dark textarea {
+    background-color: #374151;
+    border-color: #4b5563;
+    color: #f3f4f6;
+}
+
+.dark input:focus,
+.dark select:focus,
+.dark textarea:focus {
+    border-color: #3b82f6;
+}
+
+/* Dark mode for Quill editor */
+.dark .ql-toolbar {
+    background-color: #374151;
+    border-color: #4b5563 !important;
+}
+
+.dark .ql-toolbar .ql-stroke {
+    stroke: #d1d5db;
+}
+
+.dark .ql-toolbar .ql-fill {
+    fill: #d1d5db;
+}
+
+.dark .ql-toolbar .ql-picker-label {
+    color: #d1d5db;
+}
+
+.dark .ql-container {
+    border-color: #4b5563 !important;
+}
+
+.dark .ql-editor {
+    background-color: #1f2937;
+    color: #f3f4f6;
+}
+
+.dark .ql-editor.ql-blank::before {
+    color: #6b7280;
+}

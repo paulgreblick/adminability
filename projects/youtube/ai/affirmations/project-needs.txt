@@ -1,0 +1,45 @@
+Project Mgmt for Affirmation Videos
+
+Purpose: To track Affirmation Video and ultimately other video progress (long-form)
+
+Need to know
+
+Where things are at with - 
+
+Script
+Powerpoint compilation
+Audio
+Video
+Thumbnails/Titles
+Description
+Uploading
+
+On a per script basis.
+
+Want to see this by:
+
+Title or Topic for a detail look at 1 video
+
+And also by category for each title that is listed
+
+
+I want to see all the categories listed one under each other. And if the whole category is complete this should be checked on the screen. 
+
+Then I want to expand the category and look in detail at all the titles that need work.
+
+
+
+Note that if we want to do this for more than just Affirmation videos, we will have to have categories to replicate that. But it would be good to have a dashboard just for Affirmation videos.
+
+–
+
+For details we can look at the existing tracking sheets we have in terms of components of tracking individual category progression
+
+
+Also notes and links to the Affirmations folder
+
+===
+
+Claude. The notes above are from my partner that the thing that we need to know is all of the parts of making a YouTube video that is faceless. It's a series of affirmations videos. We need to know where we are on any of them in the typical workflow of writing the script, editing the script things like that. The main areas are writing recording and things related to the video like the PowerPoint and then video stuff like that.
+
+We want to be able to see the specific steps, but also not from this project dashboard. We want to be able to know which of the major areas are done in progress or not started yet so I don't know how to do that and we need to be able to enter the different subjects that these affirmations videos will be going under
