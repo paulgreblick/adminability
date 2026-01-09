@@ -21,6 +21,8 @@ npm run production
 **Local development:** Edit files in `/src`, run `npm run build`, test at `adminability.test:8080`
 **Deploy:** Upload contents of `/dist` folder to server via FileZilla
 
+> **IMPORTANT:** After making ANY changes to files in `/src`, you must run `npm run build` (or `npm run production` for minified CSS) before testing. The `/dist` folder is what gets served locally and deployed.
+
 ---
 
 ## Project Structure
@@ -29,12 +31,17 @@ npm run production
 adminability/
 ├── src/                          # Source files (edit here)
 │   ├── assets/
-│   │   └── css/styles.css        # Tailwind source CSS
+│   │   ├── css/styles.css        # Tailwind source CSS
+│   │   └── js/scripts.js         # Main JavaScript (mobile menu toggle)
 │   ├── includes/
 │   │   ├── auth.php              # Authentication, sessions, RBAC, rate limiting
 │   │   ├── db.php                # Database connection (auto-detects env)
-│   │   ├── dashboard-layout.php  # Sidebar layout wrapper
-│   │   └── dashboard-footer.php  # Footer closing tags
+│   │   ├── dashboard-layout.php  # Sidebar layout wrapper (for dashboard pages)
+│   │   ├── dashboard-footer.php  # Dashboard footer closing tags
+│   │   ├── head.php              # SEO-optimized HTML head (for public pages)
+│   │   ├── nav.php               # Responsive navigation (for public pages)
+│   │   ├── footer.php            # Footer with social links (for public pages)
+│   │   └── scripts.php           # JavaScript includes (for public pages)
 │   ├── index.php                 # Landing page (redirects appropriately)
 │   ├── dashboard.php             # Main dashboard
 │   ├── videos.php                # Video tracker (main list)
@@ -46,18 +53,34 @@ adminability/
 │   ├── roles.php                 # Role management
 │   ├── TreePlane.php             # Login page (obscured URL)
 │   ├── logout.php
+│   ├── template.php              # Starter template for new public pages
 │   └── .htaccess                 # URL rewriting, security headers, HSTS
 ├── dist/                         # Built files (deploy this)
 ├── export/                       # SQL files for database setup
 │   ├── database-setup.sql        # Core tables (users, roles, permissions, notes)
-│   ├── video-tracker-tables.sql  # Video tracker tables
+│   ├── video-tracker-tables.sql  # Video tracker schema
 │   ├── docs-setup.sql            # Knowledge base tables (doc_categories, docs)
 │   ├── sync-to-live.sql          # Video tracker sync to production
 │   ├── notes-upgrade.sql         # Enhanced notes features
 │   ├── full-data-sync.sql        # Complete data sync for deployment
-│   └── migrations/               # Incremental schema migrations
+│   ├── db.php.production         # Production database config reference
+│   ├── video-tracker-migration.sql   # Video tracker migration
+│   ├── deploy-video-tracker-live.sql # Video tracker deploy script v1
+│   ├── deploy-video-tracker-v2.sql   # Video tracker deploy script v2
+│   ├── video-data-export.sql     # Partial video data export
+│   ├── video-data-complete.sql   # Complete video data export
+│   ├── live-backup.sql           # Backup of live database
+│   ├── migrate-add-docs.sql      # Docs migration for live
+│   ├── migrate-add-first-name.sql # Add first_name column migration
+│   └── migrations/
+│       └── add-knowledge-base.sql    # Knowledge base schema migration
 ├── projects/youtube/ai/affirmations/
 │   └── video-tracker-plan.md     # Original planning doc
+├── deploy.md                     # Deployment guide
+├── security-plan.md              # Security planning documentation
+├── implementation.md             # Implementation notes
+├── instructions.md               # Troubleshooting notes (e.g., 404 after login fix)
+├── ssh.md                        # SSH access documentation
 ├── package.json                  # Tailwind CLI build scripts
 └── project.md                    # This file
 ```
@@ -90,7 +113,7 @@ The dashboard sidebar is organized into these sections:
 ### Core Tables (database-setup.sql)
 
 **users**
-- id, email, password_hash, name, role_id, is_active, created_at, updated_at, last_login
+- id, email, password_hash, name, first_name, role_id, is_active, created_at, updated_at, last_login
 
 **roles**
 - id, name, description, created_at
@@ -368,6 +391,34 @@ For new tables or schema changes:
 
 ---
 
+## Public Page Template System
+
+For creating public-facing pages (non-dashboard), use `template.php` as a starter. The system includes:
+
+**Includes:**
+- `head.php` - SEO-optimized HTML head with Open Graph and Twitter Cards
+- `nav.php` - Responsive navigation with mobile menu
+- `footer.php` - Footer with social media links
+- `scripts.php` - JavaScript includes and closing tags
+
+**Template variables:**
+```php
+// Required
+$page_title = 'Page Title | Site Name';
+$page_description = 'Page description for SEO';
+$page_keywords = 'keyword1, keyword2';
+$page_author = 'Author Name';
+$current_page = 'page-slug';  // For nav active state
+
+// Optional
+$site_name = 'Site Name';
+$og_image = '/assets/images/og-image.jpg';
+$custom_head = '';  // Additional head content
+$custom_scripts = '';  // Additional scripts
+```
+
+---
+
 ## Common Tasks
 
 ### Add a new permission
@@ -397,12 +448,13 @@ INSERT INTO video_progress (video_id, step_id, status) SELECT id, LAST_INSERT_ID
    <?php include 'includes/dashboard-footer.php'; ?>
    ```
 3. Add to sidebar in `src/includes/dashboard-layout.php`
-4. Run `npm run build`
+4. Run `npm run build` to copy files to `/dist` before testing
 
 ---
 
 ## File Reference
 
+### Dashboard Files
 | File | Purpose |
 |------|---------|
 | `src/includes/auth.php` | Authentication, session management, RBAC, rate limiting |
@@ -420,8 +472,40 @@ INSERT INTO video_progress (video_id, step_id, status) SELECT id, LAST_INSERT_ID
 | `src/roles.php` | Role and permission management |
 | `src/TreePlane.php` | Login page (obscured URL) |
 | `src/.htaccess` | URL rewriting, security headers, HTTPS redirect, HSTS |
+
+### Public Page Template Files
+| File | Purpose |
+|------|---------|
+| `src/template.php` | Starter template for new public pages |
+| `src/includes/head.php` | SEO-optimized HTML head with OG/Twitter cards |
+| `src/includes/nav.php` | Responsive navigation with mobile menu |
+| `src/includes/footer.php` | Footer with social media links |
+| `src/includes/scripts.php` | JavaScript includes and closing tags |
+| `src/assets/js/scripts.js` | Main JavaScript (mobile menu toggle) |
+
+### Database Files
+| File | Purpose |
+|------|---------|
 | `export/database-setup.sql` | Core schema (run first on new install) |
 | `export/video-tracker-tables.sql` | Video tracker schema |
 | `export/docs-setup.sql` | Knowledge base schema |
+| `export/notes-upgrade.sql` | Enhanced notes features |
 | `export/sync-to-live.sql` | Production data sync for video tracker |
 | `export/full-data-sync.sql` | Complete data sync for deployment |
+| `export/video-tracker-migration.sql` | Video tracker migration script |
+| `export/deploy-video-tracker-live.sql` | Video tracker deploy script v1 |
+| `export/deploy-video-tracker-v2.sql` | Video tracker deploy script v2 |
+| `export/live-backup.sql` | Backup of live database |
+| `export/migrate-add-docs.sql` | Docs migration for live |
+| `export/migrate-add-first-name.sql` | Add first_name column migration |
+| `export/migrations/add-knowledge-base.sql` | Knowledge base schema migration |
+
+### Documentation Files
+| File | Purpose |
+|------|---------|
+| `project.md` | This file - main project documentation |
+| `deploy.md` | Deployment guide and procedures |
+| `security-plan.md` | Security planning documentation |
+| `implementation.md` | Implementation notes |
+| `instructions.md` | Troubleshooting notes (e.g., 404 after login fix) |
+| `ssh.md` | SSH access documentation |
