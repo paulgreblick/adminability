@@ -3,8 +3,9 @@
 A password-protected admin dashboard for managing projects, notes, and tracking workflows. Built with PHP, MySQL, and Tailwind CSS v4.
 
 **Live URL:** https://adminability.ac
-**Local URL:** http://adminability.test:8080
+**Local URL:** http://adminability.ac.test:8080
 **Hosting:** BigScoots (shared hosting)
+**Local Dev:** Homebrew AMP (Apache/MySQL/PHP)
 
 ---
 
@@ -18,8 +19,8 @@ npm run build
 npm run production
 ```
 
-**Local development:** Edit files in `/src`, run `npm run build`, test at `adminability.test:8080`
-**Deploy:** Upload contents of `/dist` folder to server via FileZilla
+**Local development:** Edit files in `/src`, run `npm run build`, test at `adminability.ac.test:8080`
+**Deploy:** Upload `/dist` to server, then fix permissions: `chmod 644 ~/adminability.ac/*.php ~/adminability.ac/.htaccess`
 
 > **IMPORTANT:** After making ANY changes to files in `/src`, you must run `npm run build` (or `npm run production` for minified CSS) before testing. The `/dist` folder is what gets served locally and deployed.
 
@@ -32,7 +33,7 @@ adminability/
 ├── src/                          # Source files (edit here)
 │   ├── assets/
 │   │   ├── css/styles.css        # Tailwind source CSS
-│   │   └── js/scripts.js         # Main JavaScript (mobile menu toggle)
+│   │   └── js/scripts.js         # Main JavaScript (dark mode, sidebar toggle)
 │   ├── includes/
 │   │   ├── auth.php              # Authentication, sessions, RBAC, rate limiting
 │   │   ├── db.php                # Database connection (auto-detects env)
@@ -59,7 +60,7 @@ adminability/
 ├── export/                       # SQL files for database setup
 │   ├── database-setup.sql        # Core tables (users, roles, permissions, notes)
 │   ├── video-tracker-tables.sql  # Video tracker schema
-│   ├── docs-setup.sql            # Knowledge base tables (doc_categories, docs)
+│   ├── docs-setup.sql            # Knowledge base tables
 │   ├── sync-to-live.sql          # Video tracker sync to production
 │   ├── notes-upgrade.sql         # Enhanced notes features
 │   ├── full-data-sync.sql        # Complete data sync for deployment
@@ -72,8 +73,20 @@ adminability/
 │   ├── live-backup.sql           # Backup of live database
 │   ├── migrate-add-docs.sql      # Docs migration for live
 │   ├── migrate-add-first-name.sql # Add first_name column migration
+│   ├── migrate-docs-to-tags.sql  # Migration from categories to tags
 │   └── migrations/
 │       └── add-knowledge-base.sql    # Knowledge base schema migration
+├── ftp-tool/                     # FTP deploy tool (CLI + GUI)
+│   ├── deploy-cli.py             # CLI deploy script (5 concurrent FTP connections)
+│   ├── deploy-gui.py             # PySide6 GUI version
+│   ├── Deploy-DEV.command        # macOS double-click launcher (dev)
+│   ├── Deploy-LIVE.command       # macOS double-click launcher (live)
+│   ├── deploy-config.json        # Project-specific config (not committed)
+│   ├── ftp-credentials.json      # FTP password (not committed)
+│   ├── CLAUDE.md                 # Deploy tool instructions for Claude
+│   └── logs/                     # Deploy log files (not committed)
+├── prose/                        # Page content/copy in markdown
+│   └── pages/                    # Markdown source for each page
 ├── projects/youtube/ai/affirmations/
 │   └── video-tracker-plan.md     # Original planning doc
 ├── deploy.md                     # Deployment guide
@@ -126,8 +139,11 @@ The dashboard sidebar is organized into these sections:
 **role_permissions**
 - role_id, permission_id (many-to-many)
 
+**note_projects** (note categories/projects)
+- id, name, sort_order, created_at
+
 **notes**
-- id, title, content, status (idea/in_progress/done), priority (low/normal/high), created_by, timestamps
+- id, project_id (FK to note_projects), title, content, type (note/idea/task), status (idea/in_progress/done), priority (low/normal/high), is_pinned, created_by, updated_by, timestamps
 
 **login_attempts** / **ip_lockouts**
 - Rate limiting tables for brute force protection
@@ -138,7 +154,7 @@ The dashboard sidebar is organized into these sections:
 ```sql
 - id INT PRIMARY KEY
 - name VARCHAR(100)           -- e.g., "Research", "Audio Record"
-- phase ENUM('writing', 'production', 'publishing')
+- phase ENUM('writing', 'audio', 'video', 'publish', 'final')
 - sort_order INT
 - created_at TIMESTAMP
 ```
@@ -194,59 +210,62 @@ Pre-populated with 16 affirmation topics:
 
 Note: `ON DELETE RESTRICT` on step_id prevents deleting workflow steps that have progress recorded.
 
-### Knowledge Base Tables (docs-setup.sql)
+### Knowledge Base Tables (docs-setup.sql + migrate-docs-to-tags.sql)
 
-**doc_categories**
+**doc_tags**
 ```sql
 - id INT PRIMARY KEY
-- name VARCHAR(100)           -- e.g., "Reference", "Processes"
-- slug VARCHAR(100) UNIQUE
-- description VARCHAR(255)
-- icon VARCHAR(50)            -- e.g., "folder", "book"
+- name VARCHAR(50)            -- e.g., "Reference", "Guide"
+- slug VARCHAR(50) UNIQUE
 - color VARCHAR(20)           -- e.g., "blue", "green"
-- sort_order INT
 - created_at TIMESTAMP
 ```
 
-Default categories: Reference, Processes, Workflows, Guides
+Default tags: Reference, Process, Guide
+
+**doc_tag_map** (many-to-many)
+```sql
+- doc_id INT (FK to docs, ON DELETE CASCADE)
+- tag_id INT (FK to doc_tags, ON DELETE CASCADE)
+- PRIMARY KEY (doc_id, tag_id)
+```
 
 **docs**
 ```sql
 - id INT PRIMARY KEY
-- category_id INT (FK to doc_categories)
 - parent_id INT (FK to docs, self-referential for nesting)
 - title VARCHAR(255)
 - slug VARCHAR(255)
 - content LONGTEXT             -- Markdown/rich content
-- doc_type ENUM('reference', 'process', 'workflow', 'guide')
 - status ENUM('draft', 'published', 'archived')
 - sort_order INT
 - created_by, updated_by INT (FK to users)
 - created_at, updated_at TIMESTAMP
 ```
 
-### Default Workflow Steps (15 total)
+### Default Workflow Steps (5 phases, 10 steps)
 
-**Writing Phase (4 steps):**
-1. Research
-2. First Draft
-3. Review/Edit
-4. Final Script
+**Writing Phase (2 steps):**
+1. Script Draft
+2. Script Final
 
-**Production Phase (5 steps):**
-5. Slides
-6. Audio Record
-7. Audio Edit
-8. Video Compile
-9. Video Edit
+**Audio Phase (2 steps):**
+3. Base Recording
+4. Editing
 
-**Publishing Phase (6 steps):**
-10. Thumbnail
-11. SEO Title
-12. Description
-13. Tags
-14. Upload
-15. Publish
+**Video Phase (2 steps):**
+5. PowerPoint Created
+6. PowerPoint Assembled
+
+**Ready to Publish Phase (4 steps):**
+7. Title Confirmed
+8. Thumbnail Created
+9. Description Created
+10. IG Comments Created
+
+**Published Phase (2 steps):**
+11. Uploaded to YouTube
+12. Comments Pinned
 
 ---
 
@@ -277,8 +296,8 @@ Current permissions:
 - `dashboard.view`
 
 ### Video Tracker Features
-- **Category View:** All videos in a flat table with status circles
-- **Work Type View:** Filter videos by which step they need completed
+- **Phase View:** Videos organized by 5 phases (Writing, Audio, Video, Ready to Publish, Published)
+- **Expandable Details:** Click to expand video details
 - **AJAX Status Updates:** Click status circles to cycle through states without page refresh
 - **Manage Work Types:** Add/delete workflow steps from the UI (with database constraints)
 - **Progress Tracking:** Overall and per-phase completion percentages
@@ -286,18 +305,20 @@ Current permissions:
 Status cycle: `○ not_started → ◐ in_progress → ● complete → ○ not_started`
 
 ### Knowledge Base Features
-- **Tree Navigation:** Collapsible categories with nested documents
-- **Document Types:** Reference, Process, Workflow, Guide
+- **Flat List with Tags:** Filter documents by colored tags
+- **Tag System:** Docs can have multiple tags (many-to-many)
 - **Status Tracking:** Draft, Published, Archived
 - **Hierarchical Docs:** Documents can have parent-child relationships
-- **Categories:** Customizable with colors and icons
+- **Split View:** Left panel doc list, right panel content view/edit
 - **Rich Content:** Supports long-form documentation
 
 ### Notes Features
+- **Project Categories:** Notes organized by project (`note_projects` table)
+- **Note Types:** note, idea, task
 - Priority levels (low/normal/high)
 - Status tracking (idea/in_progress/done)
-- Filtering by status
-- "Copy All Notes" for sharing with Claude
+- Pin notes to top
+- Collapsible card grid layout with modal forms
 
 ---
 
@@ -313,10 +334,10 @@ $isLocal = (
 
 if ($isLocal) {
     $db_user = 'root';
-    $db_pass = '';
+    $db_pass = '****';
 } else {
     $db_user = 'paulgreb_admin';
-    $db_pass = 'lu@PGm1964';  // Production password
+    $db_pass = '****';  // Production password (see db.php)
 }
 ```
 
@@ -328,7 +349,8 @@ Database name: `paulgreb_adminability`
 
 ### Files
 1. Run `npm run production` locally
-2. Upload `/dist` contents to server via FileZilla
+2. Upload `/dist` contents to server via FTP deploy tool or FileZilla
+   - See `ftp-tool/CLAUDE.md` for deploy tool usage
 
 ### Database Updates
 For new tables or schema changes:
@@ -481,7 +503,7 @@ INSERT INTO video_progress (video_id, step_id, status) SELECT id, LAST_INSERT_ID
 | `src/includes/nav.php` | Responsive navigation with mobile menu |
 | `src/includes/footer.php` | Footer with social media links |
 | `src/includes/scripts.php` | JavaScript includes and closing tags |
-| `src/assets/js/scripts.js` | Main JavaScript (mobile menu toggle) |
+| `src/assets/js/scripts.js` | Main JavaScript (dark mode, sidebar toggle) |
 
 ### Database Files
 | File | Purpose |
@@ -498,6 +520,7 @@ INSERT INTO video_progress (video_id, step_id, status) SELECT id, LAST_INSERT_ID
 | `export/live-backup.sql` | Backup of live database |
 | `export/migrate-add-docs.sql` | Docs migration for live |
 | `export/migrate-add-first-name.sql` | Add first_name column migration |
+| `export/migrate-docs-to-tags.sql` | Migration from categories to tags |
 | `export/migrations/add-knowledge-base.sql` | Knowledge base schema migration |
 
 ### Documentation Files

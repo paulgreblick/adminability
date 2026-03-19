@@ -1,0 +1,27 @@
+{
+    "project_domain": "adminability.ac",
+    "targets": {
+        "dev": {
+            "name": "Dev Site",
+            "host": "carter.securedserverspace.com",
+            "user": "paulgreb",
+            "remote_path": "/dev.adminability.ac",
+            "description": "Development server - safe to test"
+        },
+        "live": {
+            "name": "Live Site",
+            "host": "carter.securedserverspace.com",
+            "user": "paulgreb",
+            "remote_path": "/adminability.ac",
+            "description": "Production - be careful!"
+        }
+    },
+    "local_path": "../dist",
+    "default_excludes": [
+        ".DS_Store",
+        "Thumbs.db",
+        ".git",
+        "amember",
+        "amember/"
+    ]
+}

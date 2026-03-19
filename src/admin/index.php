@@ -1,9 +1,9 @@
 <?php
 /**
- * Login Page (Hidden URL)
+ * Login Page
  */
 
-require_once 'includes/auth.php';
+require_once __DIR__ . '/../includes/auth.php';
 
 // If already logged in, redirect to dashboard
 if (isLoggedIn()) {

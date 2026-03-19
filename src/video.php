@@ -9,7 +9,7 @@ $current_dashboard_page = 'videos';
 
 include 'includes/dashboard-layout.php';
 
-requirePermission('videos.view');
+// Auth handled by dashboard-layout.php
 
 $videoId = (int)($_GET['id'] ?? 0);
 
@@ -40,7 +40,7 @@ $message = '';
 $messageType = '';
 
 // Handle updates
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && hasPermission('videos.edit')) {
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $csrfToken = $_POST['csrf_token'] ?? '';
 
     if (!validateCsrfToken($csrfToken)) {
@@ -151,12 +151,12 @@ function getPhaseColorClasses($color) {
                     <div>
                         <label class="block text-sm font-medium text-gray-700 mb-1">Title</label>
                         <input type="text" name="title" value="<?= htmlspecialchars($video['title']) ?>" required
-                            class="w-full border border-gray-300 rounded-md px-3 py-2" <?= !hasPermission('videos.edit') ? 'disabled' : '' ?>>
+                            class="w-full border border-gray-300 rounded-md px-3 py-2">
                     </div>
 
                     <div>
                         <label class="block text-sm font-medium text-gray-700 mb-1">Category</label>
-                        <select name="category_id" class="w-full border border-gray-300 rounded-md px-3 py-2" <?= !hasPermission('videos.edit') ? 'disabled' : '' ?>>
+                        <select name="category_id" class="w-full border border-gray-300 rounded-md px-3 py-2">
                             <?php foreach ($categories as $cat): ?>
                             <option value="<?= $cat['id'] ?>" <?= $cat['id'] == $video['category_id'] ? 'selected' : '' ?>><?= htmlspecialchars($cat['name']) ?></option>
                             <?php endforeach; ?>
@@ -166,19 +166,19 @@ function getPhaseColorClasses($color) {
                     <div>
                         <label class="block text-sm font-medium text-gray-700 mb-1">Project Folder Link</label>
                         <input type="url" name="folder_link" value="<?= htmlspecialchars($video['folder_link'] ?? '') ?>" placeholder="https://drive.google.com/..."
-                            class="w-full border border-gray-300 rounded-md px-3 py-2" <?= !hasPermission('videos.edit') ? 'disabled' : '' ?>>
+                            class="w-full border border-gray-300 rounded-md px-3 py-2">
                     </div>
 
                     <div>
                         <label class="block text-sm font-medium text-gray-700 mb-1">YouTube URL</label>
                         <input type="url" name="youtube_url" value="<?= htmlspecialchars($video['youtube_url'] ?? '') ?>" placeholder="https://youtube.com/watch?v=..."
-                            class="w-full border border-gray-300 rounded-md px-3 py-2" <?= !hasPermission('videos.edit') ? 'disabled' : '' ?>>
+                            class="w-full border border-gray-300 rounded-md px-3 py-2">
                     </div>
 
                     <div>
                         <label class="block text-sm font-medium text-gray-700 mb-1">Notes</label>
                         <textarea name="notes" rows="4" placeholder="Ideas, reminders, or other notes about this video..."
-                            class="w-full border border-gray-300 rounded-md px-3 py-2" <?= !hasPermission('videos.edit') ? 'disabled' : '' ?>><?= htmlspecialchars($video['notes'] ?? '') ?></textarea>
+                            class="w-full border border-gray-300 rounded-md px-3 py-2"><?= htmlspecialchars($video['notes'] ?? '') ?></textarea>
                     </div>
                 </div>
             </div>
@@ -221,7 +221,6 @@ function getPhaseColorClasses($color) {
                         ?>
                         <div class="px-4 py-3 flex items-center justify-between hover:bg-gray-50">
                             <span class="text-gray-900"><?= htmlspecialchars($step['name']) ?></span>
-                            <?php if (hasPermission('videos.edit')): ?>
                             <div class="flex gap-1">
                                 <label class="flex items-center gap-1 px-2 py-1 rounded cursor-pointer hover:bg-gray-100 <?= $stepStatus === 'not_started' ? 'bg-gray-100' : '' ?>">
                                     <input type="radio" name="step_<?= $step['id'] ?>" value="not_started" <?= $stepStatus === 'not_started' ? 'checked' : '' ?> class="sr-only">
@@ -239,15 +238,6 @@ function getPhaseColorClasses($color) {
                                     <span class="text-xs text-green-700">Complete</span>
                                 </label>
                             </div>
-                            <?php else: ?>
-                            <span class="px-3 py-1 text-sm rounded <?php
-                                switch ($stepStatus) {
-                                    case 'complete': echo 'bg-green-100 text-green-800'; break;
-                                    case 'in_progress': echo 'bg-yellow-100 text-yellow-800'; break;
-                                    default: echo 'bg-gray-100 text-gray-500';
-                                }
-                            ?>"><?= ucfirst(str_replace('_', ' ', $stepStatus)) ?></span>
-                            <?php endif; ?>
                         </div>
                         <?php endforeach; ?>
                     </div>
@@ -258,13 +248,11 @@ function getPhaseColorClasses($color) {
 
         <!-- Sidebar -->
         <div class="space-y-6">
-            <?php if (hasPermission('videos.edit')): ?>
             <div class="bg-white rounded-lg shadow p-6">
                 <button type="submit" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-md">
                     Save Changes
                 </button>
             </div>
-            <?php endif; ?>
 
             <!-- Quick Links -->
             <?php if ($video['folder_link'] || $video['youtube_url']): ?>
@@ -340,7 +328,6 @@ function getPhaseColorClasses($color) {
             </div>
 
             <!-- Delete -->
-            <?php if (hasPermission('videos.delete')): ?>
             <div class="bg-white rounded-lg shadow p-6">
                 <h3 class="font-medium mb-3 text-red-600">Danger Zone</h3>
                 <form action="/videos" method="POST" onsubmit="return confirm('Are you sure you want to delete this video? This cannot be undone.')">
@@ -352,7 +339,6 @@ function getPhaseColorClasses($color) {
                     </button>
                 </form>
             </div>
-            <?php endif; ?>
         </div>
     </div>
 </form>

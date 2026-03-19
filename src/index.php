@@ -1,7 +1,7 @@
 <?php
 /**
  * Homepage - Blank
- * Login is at /babe
+ * Login is at /admin/
  */
 
 // Return 404 to make it look like nothing exists here

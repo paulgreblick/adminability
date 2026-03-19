@@ -7,5 +7,5 @@ require_once 'includes/auth.php';
 
 logout();
 
-header('Location: /TreePlane');
+header('Location: /admin/');
 exit;

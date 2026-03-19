@@ -1,7 +1,7 @@
 <?php
 /**
- * Authentication & Authorization Functions
- * With session hardening and rate limiting
+ * Authentication - v2 Simplified
+ * Session-based auth with rate limiting. No RBAC — all users are admins.
  */
 
 // Session configuration (must be before session_start)
@@ -46,7 +46,6 @@ function checkSessionTimeout() {
  */
 function getClientIp() {
     if (!empty($_SERVER['HTTP_CF_CONNECTING_IP'])) {
-        // Cloudflare
         return $_SERVER['HTTP_CF_CONNECTING_IP'];
     }
     if (!empty($_SERVER['HTTP_X_FORWARDED_FOR'])) {
@@ -64,16 +63,21 @@ function isLockedOut() {
 
     $ip = getClientIp();
 
-    // Clean up expired lockouts
-    $pdo->exec("DELETE FROM ip_lockouts WHERE locked_until < NOW()");
-
-    // Check for active lockout
-    $stmt = $pdo->prepare('SELECT locked_until FROM ip_lockouts WHERE ip_address = ? AND locked_until > NOW()');
+    // Count recent attempts (last 15 minutes)
+    $stmt = $pdo->prepare("SELECT COUNT(*) as count FROM login_attempts WHERE ip_address = ? AND attempted_at > datetime('now', '-15 minutes')");
     $stmt->execute([$ip]);
-    $lockout = $stmt->fetch();
+    $count = $stmt->fetch()['count'];
 
-    if ($lockout) {
-        return strtotime($lockout['locked_until']) - time(); // Return seconds remaining
+    if ($count >= MAX_LOGIN_ATTEMPTS) {
+        // Find when the oldest relevant attempt expires
+        $stmt = $pdo->prepare("SELECT attempted_at FROM login_attempts WHERE ip_address = ? ORDER BY attempted_at ASC LIMIT 1");
+        $stmt->execute([$ip]);
+        $oldest = $stmt->fetch();
+        if ($oldest) {
+            $unlockTime = strtotime($oldest['attempted_at']) + LOCKOUT_DURATION;
+            $remaining = $unlockTime - time();
+            return $remaining > 0 ? $remaining : false;
+        }
     }
 
     return false;
@@ -87,22 +91,16 @@ function recordFailedAttempt() {
 
     $ip = getClientIp();
 
-    // Record the attempt
-    $stmt = $pdo->prepare('INSERT INTO login_attempts (ip_address) VALUES (?)');
+    $stmt = $pdo->prepare("INSERT INTO login_attempts (ip_address) VALUES (?)");
     $stmt->execute([$ip]);
 
-    // Count recent attempts (last 15 minutes)
-    $stmt = $pdo->prepare('SELECT COUNT(*) as count FROM login_attempts WHERE ip_address = ? AND attempted_at > DATE_SUB(NOW(), INTERVAL 15 MINUTE)');
+    // Clean up old attempts (older than 1 hour)
+    $pdo->exec("DELETE FROM login_attempts WHERE attempted_at < datetime('now', '-1 hour')");
+
+    // Count recent attempts
+    $stmt = $pdo->prepare("SELECT COUNT(*) as count FROM login_attempts WHERE ip_address = ? AND attempted_at > datetime('now', '-15 minutes')");
     $stmt->execute([$ip]);
-    $count = $stmt->fetch()['count'];
-
-    // Lock out if too many attempts
-    if ($count >= MAX_LOGIN_ATTEMPTS) {
-        $stmt = $pdo->prepare('INSERT INTO ip_lockouts (ip_address, locked_until, attempt_count) VALUES (?, DATE_ADD(NOW(), INTERVAL ? SECOND), ?) ON DUPLICATE KEY UPDATE locked_until = DATE_ADD(NOW(), INTERVAL ? SECOND), attempt_count = attempt_count + 1');
-        $stmt->execute([$ip, LOCKOUT_DURATION, $count, LOCKOUT_DURATION]);
-    }
-
-    return $count;
+    return $stmt->fetch()['count'];
 }
 
 /**
@@ -110,11 +108,8 @@ function recordFailedAttempt() {
  */
 function clearFailedAttempts() {
     global $pdo;
-
     $ip = getClientIp();
-
     $pdo->prepare('DELETE FROM login_attempts WHERE ip_address = ?')->execute([$ip]);
-    $pdo->prepare('DELETE FROM ip_lockouts WHERE ip_address = ?')->execute([$ip]);
 }
 
 /**
@@ -122,10 +117,9 @@ function clearFailedAttempts() {
  */
 function getRemainingAttempts() {
     global $pdo;
-
     $ip = getClientIp();
 
-    $stmt = $pdo->prepare('SELECT COUNT(*) as count FROM login_attempts WHERE ip_address = ? AND attempted_at > DATE_SUB(NOW(), INTERVAL 15 MINUTE)');
+    $stmt = $pdo->prepare("SELECT COUNT(*) as count FROM login_attempts WHERE ip_address = ? AND attempted_at > datetime('now', '-15 minutes')");
     $stmt->execute([$ip]);
     $count = $stmt->fetch()['count'];
 
@@ -138,7 +132,7 @@ function getRemainingAttempts() {
 function authenticate($email, $password) {
     global $pdo;
 
-    $stmt = $pdo->prepare('SELECT id, email, password_hash, name, role_id, is_active FROM users WHERE email = ?');
+    $stmt = $pdo->prepare('SELECT id, email, password_hash, name, first_name, is_active FROM users WHERE email = ?');
     $stmt->execute([$email]);
     $user = $stmt->fetch();
 
@@ -154,14 +148,14 @@ function authenticate($email, $password) {
     session_regenerate_id(true);
 
     // Update last login
-    $stmt = $pdo->prepare('UPDATE users SET last_login = NOW() WHERE id = ?');
+    $stmt = $pdo->prepare("UPDATE users SET last_login = datetime('now') WHERE id = ?");
     $stmt->execute([$user['id']]);
 
     // Set session
     $_SESSION['user_id'] = $user['id'];
     $_SESSION['user_email'] = $user['email'];
     $_SESSION['user_name'] = $user['name'];
-    $_SESSION['user_role_id'] = $user['role_id'];
+    $_SESSION['user_first_name'] = $user['first_name'];
     $_SESSION['last_activity'] = time();
     $_SESSION['created_at'] = time();
 
@@ -175,13 +169,7 @@ function isLoggedIn() {
     if (!isset($_SESSION['user_id'])) {
         return false;
     }
-
-    // Check session timeout
-    if (!checkSessionTimeout()) {
-        return false;
-    }
-
-    return true;
+    return checkSessionTimeout();
 }
 
 /**
@@ -193,56 +181,9 @@ function getCurrentUser() {
     }
 
     global $pdo;
-
-    $stmt = $pdo->prepare('
-        SELECT u.*, r.name as role_name
-        FROM users u
-        LEFT JOIN roles r ON u.role_id = r.id
-        WHERE u.id = ?
-    ');
+    $stmt = $pdo->prepare('SELECT * FROM users WHERE id = ?');
     $stmt->execute([$_SESSION['user_id']]);
     return $stmt->fetch();
-}
-
-/**
- * Get user's permissions
- */
-function getUserPermissions($userId = null) {
-    if ($userId === null) {
-        if (!isLoggedIn()) {
-            return [];
-        }
-        $userId = $_SESSION['user_id'];
-    }
-
-    global $pdo;
-
-    $stmt = $pdo->prepare('
-        SELECT p.name
-        FROM permissions p
-        JOIN role_permissions rp ON p.id = rp.permission_id
-        JOIN users u ON u.role_id = rp.role_id
-        WHERE u.id = ?
-    ');
-    $stmt->execute([$userId]);
-
-    return array_column($stmt->fetchAll(), 'name');
-}
-
-/**
- * Check if user has a specific permission
- */
-function hasPermission($permission) {
-    $permissions = getUserPermissions();
-    return in_array($permission, $permissions);
-}
-
-/**
- * Check if user has any of the specified permissions
- */
-function hasAnyPermission($permissionsToCheck) {
-    $permissions = getUserPermissions();
-    return !empty(array_intersect($permissionsToCheck, $permissions));
 }
 
 /**
@@ -250,20 +191,8 @@ function hasAnyPermission($permissionsToCheck) {
  */
 function requireLogin() {
     if (!isLoggedIn()) {
-        header('Location: /TreePlane');
+        header('Location: /admin/');
         exit;
-    }
-}
-
-/**
- * Require user to have a specific permission
- */
-function requirePermission($permission) {
-    requireLogin();
-
-    if (!hasPermission($permission)) {
-        header('HTTP/1.0 403 Forbidden');
-        die('Access denied. You do not have permission to access this resource.');
     }
 }
 
@@ -282,37 +211,6 @@ function logout() {
     }
 
     session_destroy();
-}
-
-/**
- * Create a new user (admin only)
- */
-function createUser($email, $password, $name, $roleId) {
-    global $pdo;
-
-    $passwordHash = password_hash($password, PASSWORD_DEFAULT);
-
-    $stmt = $pdo->prepare('INSERT INTO users (email, password_hash, name, role_id) VALUES (?, ?, ?, ?)');
-
-    try {
-        $stmt->execute([$email, $passwordHash, $name, $roleId]);
-        return $pdo->lastInsertId();
-    } catch (PDOException $e) {
-        if ($e->getCode() == 23000) {
-            return false; // Duplicate email
-        }
-        throw $e;
-    }
-}
-
-/**
- * Get all roles
- */
-function getRoles() {
-    global $pdo;
-
-    $stmt = $pdo->query('SELECT * FROM roles ORDER BY id');
-    return $stmt->fetchAll();
 }
 
 /**

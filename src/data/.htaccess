@@ -1,0 +1,8 @@
+# Deny all access to the database file
+<Files "*.db">
+    Require all denied
+</Files>
+
+<Files "*.sql">
+    Require all denied
+</Files>

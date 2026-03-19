@@ -1,6 +1,7 @@
 <?php
 /**
- * Dashboard - Main page after login
+ * Dashboard v2 - Command Center
+ * Shows what's in progress, what's next, recent completions, pinned notes, and stats.
  */
 
 $dashboard_title = 'Dashboard';
@@ -8,129 +9,186 @@ $current_dashboard_page = 'dashboard';
 
 include 'includes/dashboard-layout.php';
 
-// Get video progress stats
-$videoStats = null;
-if (in_array('videos.view', $userPermissions)) {
-    $totalVideos = $pdo->query('SELECT COUNT(*) FROM videos')->fetchColumn();
-    $totalSteps = $pdo->query('SELECT COUNT(*) FROM workflow_steps')->fetchColumn();
-    $completedSteps = $pdo->query('SELECT COUNT(*) FROM video_progress WHERE status = "complete"')->fetchColumn();
-    $totalPossible = $totalVideos * $totalSteps;
-    $overallPercent = $totalPossible > 0 ? round(($completedSteps / $totalPossible) * 100) : 0;
+$firstName = htmlspecialchars($_SESSION['user_first_name'] ?? $_SESSION['user_name'] ?? 'there');
 
-    // Count fully completed videos
-    $completedVideos = $pdo->query('
-        SELECT COUNT(DISTINCT v.id)
-        FROM videos v
-        WHERE NOT EXISTS (
-            SELECT 1 FROM video_progress vp
-            WHERE vp.video_id = v.id AND vp.status != "complete"
-        )
-    ')->fetchColumn();
+// Get all workflow steps
+$allSteps = $pdo->query('SELECT * FROM workflow_steps ORDER BY sort_order')->fetchAll();
+$totalSteps = count($allSteps);
 
-    $videoStats = [
-        'total' => $totalVideos,
-        'completed' => $completedVideos,
-        'percent' => $overallPercent
-    ];
+// Get all videos with progress
+$videos = $pdo->query('
+    SELECT v.*, c.name as category_name
+    FROM videos v
+    JOIN video_categories c ON v.category_id = c.id
+    ORDER BY c.sort_order, v.title
+')->fetchAll();
+
+$totalVideos = count($videos);
+
+// Calculate per-video progress
+$inProgress = [];
+$upNext = [];
+$recentlyDone = [];
+$completedCount = 0;
+
+foreach ($videos as $video) {
+    $stmt = $pdo->prepare('
+        SELECT vp.status, ws.name as step_name, ws.phase
+        FROM video_progress vp
+        JOIN workflow_steps ws ON vp.step_id = ws.id
+        WHERE vp.video_id = ?
+        ORDER BY ws.sort_order
+    ');
+    $stmt->execute([$video['id']]);
+    $progress = $stmt->fetchAll();
+
+    $complete = count(array_filter($progress, fn($p) => $p['status'] === 'complete'));
+    $total = count($progress);
+    $percent = $total > 0 ? round(($complete / $total) * 100) : 0;
+
+    $video['progress_percent'] = $percent;
+    $video['completed_steps'] = $complete;
+    $video['total_steps'] = $total;
+
+    if ($percent === 100) {
+        $completedCount++;
+        $recentlyDone[] = $video;
+    } elseif ($percent > 0) {
+        // Find current step (first non-complete)
+        $currentStep = null;
+        foreach ($progress as $p) {
+            if ($p['status'] !== 'complete') {
+                $currentStep = $p;
+                break;
+            }
+        }
+        $video['current_step'] = $currentStep;
+        $inProgress[] = $video;
+    } else {
+        $upNext[] = $video;
+    }
 }
 
-// Get notes count
-$notesCount = 0;
-if (in_array('notes.view', $userPermissions)) {
-    $notesCount = $pdo->query('SELECT COUNT(*) FROM notes')->fetchColumn();
-}
+// Limit lists
+$recentlyDone = array_slice($recentlyDone, 0, 5);
+$upNext = array_slice($upNext, 0, 4);
+
+// Overall stats
+$overallPercent = $totalVideos > 0 ? round(($completedCount / $totalVideos) * 100) : 0;
+
+// Get pinned notes
+$pinnedNotes = $pdo->query('SELECT * FROM notes WHERE is_pinned = 1 ORDER BY updated_at DESC LIMIT 5')->fetchAll();
 ?>
 
-<!-- Progress Section -->
+<!-- Greeting -->
 <div class="mb-8">
-    <h2 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">Progress</h2>
-    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        <?php if (in_array('videos.view', $userPermissions) && $videoStats): ?>
-        <a href="/videos" class="bg-white dark:bg-gray-800 rounded-lg shadow p-6 hover:shadow-lg transition-shadow border-l-4 border-purple-500">
-            <div class="flex items-start justify-between">
-                <div>
-                    <h3 class="font-semibold text-gray-900 dark:text-white text-lg">Affirmations</h3>
-                    <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">YouTube Video Project</p>
-                </div>
-                <div class="bg-purple-100 dark:bg-purple-900/50 rounded-full p-2">
-                    <svg class="w-6 h-6 text-purple-600 dark:text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                    </svg>
-                </div>
-            </div>
-            <div class="mt-4">
-                <div class="flex justify-between text-sm mb-1">
-                    <span class="text-gray-600 dark:text-gray-400"><?= $videoStats['completed'] ?> of <?= $videoStats['total'] ?> videos complete</span>
-                    <span class="font-medium text-purple-600 dark:text-purple-400"><?= $videoStats['percent'] ?>%</span>
-                </div>
-                <div class="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
-                    <div class="bg-purple-600 h-2 rounded-full" style="width: <?= $videoStats['percent'] ?>%"></div>
-                </div>
-            </div>
-        </a>
-        <?php endif; ?>
-
-        <!-- Add Project Card -->
-        <div class="bg-gray-50 dark:bg-gray-800/50 rounded-lg border-2 border-dashed border-gray-300 dark:border-gray-600 p-6 flex items-center justify-center text-gray-400 hover:border-gray-400 dark:hover:border-gray-500 hover:text-gray-500 dark:hover:text-gray-300 transition-colors cursor-pointer">
-            <div class="text-center">
-                <svg class="w-8 h-8 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-                </svg>
-                <span class="text-sm">Add Project</span>
-            </div>
-        </div>
-    </div>
+    <h2 class="text-2xl font-bold text-gray-900 dark:text-white">Hey, <?= $firstName ?></h2>
 </div>
 
-<!-- Docs Section -->
-<div class="mb-8">
-    <h2 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">Docs</h2>
-    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        <?php if (in_array('notes.view', $userPermissions)): ?>
-        <a href="/notes" class="bg-white dark:bg-gray-800 rounded-lg shadow p-6 hover:shadow-lg transition-shadow border-l-4 border-blue-500">
-            <div class="flex items-start justify-between">
-                <div>
-                    <h3 class="font-semibold text-gray-900 dark:text-white text-lg">Notes</h3>
-                    <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">Shared ideas & notes</p>
-                </div>
-                <div class="bg-blue-100 dark:bg-blue-900/50 rounded-full p-2">
-                    <svg class="w-6 h-6 text-blue-600 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                    </svg>
-                </div>
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+    <!-- Left column: In Progress + Up Next -->
+    <div class="lg:col-span-2 space-y-6">
+
+        <!-- In Progress -->
+        <?php if (!empty($inProgress)): ?>
+        <div>
+            <h3 class="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">In Progress (<?= count($inProgress) ?>)</h3>
+            <div class="space-y-3">
+                <?php foreach ($inProgress as $video): ?>
+                <a href="/videos" class="block bg-white dark:bg-gray-800 rounded-lg shadow-sm p-4 hover:shadow-md transition-shadow">
+                    <div class="flex items-center justify-between">
+                        <div class="min-w-0 flex-1">
+                            <div class="font-medium text-gray-900 dark:text-white truncate"><?= htmlspecialchars($video['title']) ?></div>
+                            <div class="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
+                                <?= htmlspecialchars($video['category_name']) ?>
+                                <?php if ($video['current_step']): ?>
+                                    &middot; <span class="text-yellow-600 dark:text-yellow-400"><?= htmlspecialchars($video['current_step']['step_name']) ?></span>
+                                <?php endif; ?>
+                            </div>
+                        </div>
+                        <div class="ml-4 flex items-center gap-3">
+                            <span class="text-sm font-medium text-gray-600 dark:text-gray-300"><?= $video['progress_percent'] ?>%</span>
+                            <div class="w-20 bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                                <div class="bg-yellow-500 h-2 rounded-full" style="width: <?= $video['progress_percent'] ?>%"></div>
+                            </div>
+                        </div>
+                    </div>
+                </a>
+                <?php endforeach; ?>
             </div>
-            <div class="mt-4">
-                <p class="text-2xl font-bold text-gray-900 dark:text-white"><?= $notesCount ?></p>
-                <p class="text-sm text-gray-500 dark:text-gray-400">total notes</p>
-            </div>
-        </a>
+        </div>
         <?php endif; ?>
 
-        <!-- Add Doc Card -->
-        <div class="bg-gray-50 dark:bg-gray-800/50 rounded-lg border-2 border-dashed border-gray-300 dark:border-gray-600 p-6 flex items-center justify-center text-gray-400 hover:border-gray-400 dark:hover:border-gray-500 hover:text-gray-500 dark:hover:text-gray-300 transition-colors cursor-pointer">
-            <div class="text-center">
-                <svg class="w-8 h-8 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-                </svg>
-                <span class="text-sm">Add Document</span>
+        <!-- Up Next -->
+        <?php if (!empty($upNext)): ?>
+        <div>
+            <h3 class="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">Up Next (<?= count($upNext) ?>)</h3>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <?php foreach ($upNext as $video): ?>
+                <a href="/videos" class="block bg-white dark:bg-gray-800 rounded-lg shadow-sm p-4 hover:shadow-md transition-shadow border-l-4 border-gray-300 dark:border-gray-600">
+                    <div class="font-medium text-gray-900 dark:text-white truncate"><?= htmlspecialchars($video['title']) ?></div>
+                    <div class="text-sm text-gray-500 dark:text-gray-400 mt-0.5"><?= htmlspecialchars($video['category_name']) ?></div>
+                    <div class="text-xs text-gray-400 dark:text-gray-500 mt-1">Ready to start</div>
+                </a>
+                <?php endforeach; ?>
             </div>
         </div>
-    </div>
-</div>
+        <?php endif; ?>
 
-<!-- Tracking Section -->
-<div class="mb-8">
-    <h2 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">Tracking</h2>
-    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        <!-- Placeholder Card -->
-        <div class="bg-gray-50 dark:bg-gray-800/50 rounded-lg border-2 border-dashed border-gray-300 dark:border-gray-600 p-6 flex items-center justify-center text-gray-400 hover:border-gray-400 dark:hover:border-gray-500 hover:text-gray-500 dark:hover:text-gray-300 transition-colors cursor-pointer">
-            <div class="text-center">
-                <svg class="w-8 h-8 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-                </svg>
-                <span class="text-sm">Add Tracker</span>
-            </div>
+        <!-- Empty state -->
+        <?php if (empty($inProgress) && empty($upNext)): ?>
+        <div class="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-8 text-center">
+            <p class="text-gray-500 dark:text-gray-400">No videos yet.</p>
+            <a href="/videos" class="text-blue-600 hover:text-blue-700 text-sm mt-2 inline-block">Add your first video</a>
         </div>
+        <?php endif; ?>
+    </div>
+
+    <!-- Right column: Stats + Recently Done + Pinned Notes -->
+    <div class="space-y-6">
+
+        <!-- Stats -->
+        <div class="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-5">
+            <h3 class="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">Progress</h3>
+            <div class="text-3xl font-bold text-gray-900 dark:text-white"><?= $completedCount ?> <span class="text-lg font-normal text-gray-500 dark:text-gray-400">/ <?= $totalVideos ?></span></div>
+            <div class="text-sm text-gray-500 dark:text-gray-400 mb-3">videos complete</div>
+            <div class="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2.5">
+                <div class="bg-green-600 h-2.5 rounded-full" style="width: <?= $overallPercent ?>%"></div>
+            </div>
+            <div class="text-right text-sm text-gray-500 dark:text-gray-400 mt-1"><?= $overallPercent ?>%</div>
+        </div>
+
+        <!-- Recently Done -->
+        <?php if (!empty($recentlyDone)): ?>
+        <div class="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-5">
+            <h3 class="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">Recently Done</h3>
+            <ul class="space-y-2">
+                <?php foreach ($recentlyDone as $video): ?>
+                <li class="flex items-center gap-2 text-sm">
+                    <span class="text-green-600">&#10003;</span>
+                    <span class="text-gray-700 dark:text-gray-300 truncate"><?= htmlspecialchars($video['title']) ?></span>
+                </li>
+                <?php endforeach; ?>
+            </ul>
+        </div>
+        <?php endif; ?>
+
+        <!-- Pinned Notes -->
+        <?php if (!empty($pinnedNotes)): ?>
+        <div class="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-5">
+            <div class="flex items-center justify-between mb-3">
+                <h3 class="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Pinned Notes</h3>
+                <a href="/notes" class="text-xs text-blue-600 hover:text-blue-700">View all</a>
+            </div>
+            <ul class="space-y-2">
+                <?php foreach ($pinnedNotes as $note): ?>
+                <li class="text-sm text-gray-700 dark:text-gray-300 truncate">
+                    <?= htmlspecialchars($note['title'] ?: substr($note['content'], 0, 60)) ?>
+                </li>
+                <?php endforeach; ?>
+            </ul>
+        </div>
+        <?php endif; ?>
     </div>
 </div>
 
