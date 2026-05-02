@@ -1,0 +1,38 @@
+ADMINABILITY — URL REFERENCE
+============================
+
+LOCAL                                              LIVE
+-----                                              ----
+http://adminability.ac.test:8080/                  https://adminability.ac/
+http://adminability.ac.test:8080/admin/            https://adminability.ac/admin/
+
+DASHBOARD PAGES
+---------------
+http://adminability.ac.test:8080/dashboard         https://adminability.ac/dashboard
+http://adminability.ac.test:8080/tasks             https://adminability.ac/tasks
+http://adminability.ac.test:8080/videos            https://adminability.ac/videos
+http://adminability.ac.test:8080/video?id=1        https://adminability.ac/video?id=1
+http://adminability.ac.test:8080/notes             https://adminability.ac/notes
+http://adminability.ac.test:8080/docs              https://adminability.ac/docs
+http://adminability.ac.test:8080/doc?id=1          https://adminability.ac/doc?id=1
+http://adminability.ac.test:8080/logout            https://adminability.ac/logout
+
+API ENDPOINTS (POST only, internal use)
+---------------------------------------
+http://adminability.ac.test:8080/api/tasks         https://adminability.ac/api/tasks
+http://adminability.ac.test:8080/api/notes         https://adminability.ac/api/notes
+http://adminability.ac.test:8080/api/videos        https://adminability.ac/api/videos
+
+NOTES
+-----
+- Login page is at /admin/  (NOT /login)
+- Root "/" returns 404 by design (security through obscurity)
+- All dashboard pages require login — unauthenticated requests redirect to /admin/
+- Filter examples:
+    /tasks?filter=mine
+    /tasks?filter=done
+    /tasks?project=2
+    /notes?filter=pinned
+    /notes?filter=archived
+    /docs?tag=1
+    /videos?category=3

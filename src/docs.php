@@ -1,518 +1,409 @@
 <?php
 /**
- * Knowledge Base - Flat List with Tags
- * Left: Doc list with tag filter | Right: Document content
+ * Knowledge Base — responsive split panel
  */
 
-require_once __DIR__ . '/includes/auth.php';
-require_once __DIR__ . '/includes/db.php';
-requireLogin();
+$page_title = 'Docs';
+$current_page = 'docs';
+require_once __DIR__ . '/includes/layout.php';
 
 $message = '';
 $messageType = '';
 
-// Handle POST actions
+// POST handlers
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $csrfToken = $_POST['csrf_token'] ?? '';
-
-    if (!validateCsrfToken($csrfToken)) {
+    if (!validateCsrfToken($_POST['csrf_token'] ?? '')) {
         $message = 'Invalid request.';
         $messageType = 'error';
     } else {
         $action = $_POST['action'] ?? '';
-
         switch ($action) {
             case 'create_doc':
-
                 $title = trim($_POST['title'] ?? '');
-
                 if ($title) {
                     $slug = strtolower(preg_replace('/[^a-zA-Z0-9]+/', '-', $title));
                     $slug = trim($slug, '-');
-
-                    // Ensure unique slug
-                    $baseSlug = $slug;
-                    $counter = 1;
+                    $base = $slug; $c = 1;
                     while (true) {
-                        $stmt = $pdo->prepare('SELECT id FROM docs WHERE slug = ?');
-                        $stmt->execute([$slug]);
-                        if (!$stmt->fetch()) break;
-                        $slug = $baseSlug . '-' . $counter++;
+                        $chk = $pdo->prepare('SELECT id FROM docs WHERE slug = ?');
+                        $chk->execute([$slug]);
+                        if (!$chk->fetch()) break;
+                        $slug = $base . '-' . $c++;
                     }
-
-                    $stmt = $pdo->prepare('INSERT INTO docs (title, slug, status, created_by) VALUES (?, ?, "published", ?)');
+                    $stmt = $pdo->prepare("INSERT INTO docs (title, slug, status, created_by) VALUES (?, ?, 'published', ?)");
                     $stmt->execute([$title, $slug, $_SESSION['user_id']]);
-                    $newId = $pdo->lastInsertId();
-
-                    header("Location: /docs?id=$newId&edit=1");
+                    header('Location: /docs?id=' . $pdo->lastInsertId() . '&edit=1');
                     exit;
                 }
                 break;
 
             case 'save_doc':
-
                 $docId = (int)($_POST['doc_id'] ?? 0);
                 $title = trim($_POST['title'] ?? '');
                 $content = $_POST['content'] ?? '';
                 $tagIds = $_POST['tags'] ?? [];
-
+                $projectId = !empty($_POST['project_id']) ? (int)$_POST['project_id'] : null;
                 if ($docId && $title) {
-                    $stmt = $pdo->prepare("UPDATE docs SET title = ?, content = ?, updated_by = ?, updated_at = datetime('now') WHERE id = ?");
-                    $stmt->execute([$title, $content, $_SESSION['user_id'], $docId]);
-
-                    // Update tags
+                    $stmt = $pdo->prepare("UPDATE docs SET title = ?, content = ?, project_id = ?, updated_by = ?, updated_at = datetime('now') WHERE id = ?");
+                    $stmt->execute([$title, $content, $projectId, $_SESSION['user_id'], $docId]);
                     $pdo->prepare('DELETE FROM doc_tag_map WHERE doc_id = ?')->execute([$docId]);
-                    if (!empty($tagIds)) {
-                        $insertStmt = $pdo->prepare('INSERT INTO doc_tag_map (doc_id, tag_id) VALUES (?, ?)');
-                        foreach ($tagIds as $tagId) {
-                            $insertStmt->execute([$docId, (int)$tagId]);
-                        }
+                    if ($tagIds) {
+                        $ins = $pdo->prepare('INSERT INTO doc_tag_map (doc_id, tag_id) VALUES (?, ?)');
+                        foreach ($tagIds as $tid) $ins->execute([$docId, (int)$tid]);
                     }
-
-                    header("Location: /docs?id=$docId&saved=1");
+                    header('Location: /docs?id=' . $docId . '&saved=1');
                     exit;
                 }
                 break;
 
             case 'delete_doc':
-
                 $docId = (int)($_POST['doc_id'] ?? 0);
-                $stmt = $pdo->prepare('DELETE FROM docs WHERE id = ?');
-                $stmt->execute([$docId]);
-
-                header("Location: /docs?deleted=1");
+                $pdo->prepare('DELETE FROM docs WHERE id = ?')->execute([$docId]);
+                header('Location: /docs?deleted=1');
                 exit;
 
             case 'add_tag':
-
                 $name = trim($_POST['tag_name'] ?? '');
-                $color = $_POST['tag_color'] ?? 'gray';
+                $color = $_POST['tag_color'] ?? 'slate';
                 if ($name) {
                     $slug = strtolower(preg_replace('/[^a-zA-Z0-9]+/', '-', $name));
-                    $stmt = $pdo->prepare('INSERT IGNORE INTO doc_tags (name, slug, color) VALUES (?, ?, ?)');
+                    $stmt = $pdo->prepare('INSERT OR IGNORE INTO doc_tags (name, slug, color) VALUES (?, ?, ?)');
                     $stmt->execute([$name, $slug, $color]);
-                    $message = 'Tag created.';
-                    $messageType = 'success';
                 }
                 break;
 
             case 'delete_tag':
-
                 $tagId = (int)($_POST['tag_id'] ?? 0);
                 $pdo->prepare('DELETE FROM doc_tags WHERE id = ?')->execute([$tagId]);
-                $message = 'Tag deleted.';
-                $messageType = 'success';
                 break;
         }
     }
 }
 
-// Check for success messages from redirects
-if (isset($_GET['saved'])) {
-    $message = 'Document saved.';
-    $messageType = 'success';
-}
-if (isset($_GET['deleted'])) {
-    $message = 'Document deleted.';
-    $messageType = 'success';
-}
+if (isset($_GET['saved'])) { $message = 'Document saved.'; $messageType = 'success'; }
+if (isset($_GET['deleted'])) { $message = 'Document deleted.'; $messageType = 'success'; }
 
-$dashboard_title = 'Knowledge Base';
-$current_dashboard_page = 'docs';
-include 'includes/dashboard-layout.php';
-
-// Get filter tag
 $filterTag = isset($_GET['tag']) ? (int)$_GET['tag'] : null;
-
-// Get selected doc
 $selectedDocId = (int)($_GET['id'] ?? 0);
 $editMode = isset($_GET['edit']);
 $selectedDoc = null;
 
 if ($selectedDocId) {
-    $stmt = $pdo->prepare('
-        SELECT d.*, u.name as author_name
-        FROM docs d
-        LEFT JOIN users u ON d.created_by = u.id
-        WHERE d.id = ?
-    ');
+    $stmt = $pdo->prepare('SELECT d.*, u.first_name as author_first, u.name as author_name, p.name as project_name, p.color as project_color FROM docs d LEFT JOIN users u ON d.created_by = u.id LEFT JOIN projects p ON d.project_id = p.id WHERE d.id = ?');
     $stmt->execute([$selectedDocId]);
     $selectedDoc = $stmt->fetch();
-
-    // Get tags for this doc
     if ($selectedDoc) {
-        $stmt = $pdo->prepare('
-            SELECT t.* FROM doc_tags t
-            JOIN doc_tag_map m ON t.id = m.tag_id
-            WHERE m.doc_id = ?
-            ORDER BY t.name
-        ');
+        $stmt = $pdo->prepare('SELECT t.* FROM doc_tags t JOIN doc_tag_map m ON t.id = m.tag_id WHERE m.doc_id = ? ORDER BY t.name');
         $stmt->execute([$selectedDocId]);
         $selectedDoc['tags'] = $stmt->fetchAll();
     }
 }
 
-// Get all tags
 $allTags = $pdo->query('SELECT * FROM doc_tags ORDER BY name')->fetchAll();
+$allProjectsRaw = $pdo->query("SELECT id, name, color, parent_id FROM projects WHERE status = 'active' ORDER BY COALESCE(parent_id, id), parent_id IS NOT NULL, name")->fetchAll();
+$projects = [];
+foreach ($allProjectsRaw as $ap) {
+    if ($ap['parent_id']) {
+        foreach ($allProjectsRaw as $pp) { if ($pp['id'] == $ap['parent_id']) { $ap['display_name'] = $pp['name'] . ' › ' . $ap['name']; break; } }
+        if (!isset($ap['display_name'])) $ap['display_name'] = $ap['name'];
+    } else { $ap['display_name'] = $ap['name']; }
+    $projects[] = $ap;
+}
 
-// Get all docs (with optional tag filter)
 if ($filterTag) {
-    $stmt = $pdo->prepare('
-        SELECT DISTINCT d.id, d.title, d.updated_at, d.created_at
-        FROM docs d
-        JOIN doc_tag_map m ON d.id = m.doc_id
-        WHERE m.tag_id = ?
-        ORDER BY d.updated_at DESC
-    ');
+    $stmt = $pdo->prepare('SELECT DISTINCT d.id, d.title, d.updated_at, d.created_at FROM docs d JOIN doc_tag_map m ON d.id = m.doc_id WHERE m.tag_id = ? ORDER BY d.updated_at DESC');
     $stmt->execute([$filterTag]);
     $allDocs = $stmt->fetchAll();
 } else {
     $allDocs = $pdo->query('SELECT id, title, updated_at, created_at FROM docs ORDER BY updated_at DESC')->fetchAll();
 }
 
-// Get tags for each doc (for display in list)
 $docTags = [];
-$tagQuery = $pdo->query('
-    SELECT m.doc_id, t.id, t.name, t.color
-    FROM doc_tag_map m
-    JOIN doc_tags t ON t.id = m.tag_id
-');
-foreach ($tagQuery as $row) {
-    if (!isset($docTags[$row['doc_id']])) {
-        $docTags[$row['doc_id']] = [];
-    }
+foreach ($pdo->query('SELECT m.doc_id, t.id, t.name, t.color FROM doc_tag_map m JOIN doc_tags t ON t.id = m.tag_id') as $row) {
     $docTags[$row['doc_id']][] = $row;
 }
 
-$csrfToken = generateCsrfToken();
-
-$tagColors = [
-    'gray' => 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300',
-    'blue' => 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300',
-    'green' => 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300',
-    'purple' => 'bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300',
-    'orange' => 'bg-orange-100 text-orange-700 dark:bg-orange-900 dark:text-orange-300',
-    'red' => 'bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300',
-    'yellow' => 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-300',
-];
+layout_start();
 ?>
 
 <?php if ($message): ?>
-<div class="mb-4 rounded-md p-3 <?= $messageType === 'error' ? 'bg-red-50 dark:bg-red-900/30' : 'bg-green-50 dark:bg-green-900/30' ?>">
-    <p class="text-sm <?= $messageType === 'error' ? 'text-red-700 dark:text-red-400' : 'text-green-700 dark:text-green-400' ?>"><?= htmlspecialchars($message) ?></p>
+<div class="mb-4 rounded-lg px-4 py-2.5 text-sm <?= $messageType === 'error'
+    ? 'bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900 text-rose-700 dark:text-rose-300'
+    : 'bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900 text-emerald-700 dark:text-emerald-300' ?>">
+    <?= htmlspecialchars($message) ?>
 </div>
 <?php endif; ?>
 
-<!-- Two-Panel Layout -->
-<div class="flex gap-0 -mx-4 sm:-mx-6 lg:-mx-8 -mb-6 h-[calc(100vh-140px)]">
-
-    <!-- Left Panel: Doc List -->
-    <div class="w-80 flex-shrink-0 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 flex flex-col">
-
-        <!-- New Doc Button -->
-        <div class="p-3 border-b border-gray-200 dark:border-gray-700">
-            <button onclick="document.getElementById('newDocModal').classList.remove('hidden')"
-                class="w-full bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium py-2 px-3 rounded-md flex items-center justify-center gap-2">
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
-                </svg>
-                New Document
-            </button>
-        </div>
-
-        <!-- Tag Filter -->
-        <div class="px-3 py-2 border-b border-gray-200 dark:border-gray-700">
-            <div class="flex items-center gap-2 flex-wrap">
-                <a href="/docs" class="text-xs px-2 py-1 rounded-full <?= !$filterTag ? 'bg-blue-600 text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600' ?>">
-                    All
-                </a>
-                <?php foreach ($allTags as $tag): ?>
-                <a href="/docs?tag=<?= $tag['id'] ?>"
-                   class="text-xs px-2 py-1 rounded-full <?= $filterTag == $tag['id'] ? 'bg-blue-600 text-white' : ($tagColors[$tag['color']] ?? $tagColors['gray']) . ' hover:opacity-80' ?>">
-                    <?= htmlspecialchars($tag['name']) ?>
-                </a>
-                <?php endforeach; ?>
-                <button onclick="document.getElementById('manageTagsModal').classList.remove('hidden')" class="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-                    </svg>
-                </button>
-            </div>
-        </div>
-
-        <!-- Doc List -->
-        <div class="flex-1 overflow-y-auto">
-            <?php if (empty($allDocs)): ?>
-            <p class="text-sm text-gray-500 dark:text-gray-400 text-center py-8">No documents yet</p>
-            <?php else: ?>
-            <?php foreach ($allDocs as $doc):
-                $isSelected = $doc['id'] == $selectedDocId;
-                $tags = $docTags[$doc['id']] ?? [];
-            ?>
-            <a href="/docs?id=<?= $doc['id'] ?><?= $filterTag ? '&tag='.$filterTag : '' ?>"
-               class="block px-3 py-3 border-b border-gray-100 dark:border-gray-700 <?= $isSelected ? 'bg-blue-50 dark:bg-blue-900/30' : 'hover:bg-gray-50 dark:hover:bg-gray-700/50' ?>">
-                <div class="font-medium text-sm text-gray-900 dark:text-white truncate"><?= htmlspecialchars($doc['title']) ?></div>
-                <div class="flex items-center gap-2 mt-1">
-                    <span class="text-xs text-gray-400"><?= date('M j', strtotime($doc['updated_at'] ?? $doc['created_at'])) ?></span>
-                    <?php foreach (array_slice($tags, 0, 2) as $tag): ?>
-                    <span class="text-xs px-1.5 py-0.5 rounded <?= $tagColors[$tag['color']] ?? $tagColors['gray'] ?>"><?= htmlspecialchars($tag['name']) ?></span>
-                    <?php endforeach; ?>
-                    <?php if (count($tags) > 2): ?>
-                    <span class="text-xs text-gray-400">+<?= count($tags) - 2 ?></span>
-                    <?php endif; ?>
-                </div>
-            </a>
-            <?php endforeach; ?>
-            <?php endif; ?>
-        </div>
-
-        <!-- Doc Count -->
-        <div class="px-3 py-2 border-t border-gray-200 dark:border-gray-700 text-xs text-gray-500 dark:text-gray-400">
-            <?= count($allDocs) ?> document<?= count($allDocs) !== 1 ? 's' : '' ?>
-        </div>
+<!-- Header -->
+<div class="flex flex-wrap items-end justify-between gap-4 mb-6">
+    <div>
+        <h1 class="text-2xl font-semibold tracking-tight text-slate-900 dark:text-white">Knowledge Base</h1>
+        <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Reference material, processes, and docs</p>
     </div>
-
-    <!-- Right Panel: Content -->
-    <div class="flex-1 bg-gray-50 dark:bg-gray-900 overflow-y-auto">
-        <?php if ($selectedDoc): ?>
-            <?php if ($editMode): ?>
-            <!-- Edit Mode -->
-            <form method="POST" id="docForm" class="h-full flex flex-col">
-                <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken) ?>">
-                <input type="hidden" name="action" value="save_doc">
-                <input type="hidden" name="doc_id" value="<?= $selectedDoc['id'] ?>">
-
-                <!-- Edit Header -->
-                <div class="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3">
-                    <div class="flex items-center gap-4 mb-3">
-                        <input type="text" name="title" value="<?= htmlspecialchars($selectedDoc['title']) ?>" required
-                            class="flex-1 text-lg font-semibold text-gray-900 dark:text-white bg-transparent border-0 focus:ring-0 p-0"
-                            placeholder="Document title">
-
-                        <a href="/docs?id=<?= $selectedDoc['id'] ?>" class="text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 text-sm">Cancel</a>
-                        <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium py-1.5 px-4 rounded">Save</button>
-                    </div>
-                    <!-- Tag Selection -->
-                    <div class="flex items-center gap-2 flex-wrap">
-                        <span class="text-xs text-gray-500 dark:text-gray-400">Tags:</span>
-                        <?php foreach ($allTags as $tag):
-                            $isTagged = false;
-                            foreach ($selectedDoc['tags'] as $t) {
-                                if ($t['id'] == $tag['id']) { $isTagged = true; break; }
-                            }
-                        ?>
-                        <label class="cursor-pointer">
-                            <input type="checkbox" name="tags[]" value="<?= $tag['id'] ?>" <?= $isTagged ? 'checked' : '' ?> class="sr-only peer">
-                            <span class="text-xs px-2 py-1 rounded-full border-2 peer-checked:border-blue-500 border-transparent <?= $tagColors[$tag['color']] ?? $tagColors['gray'] ?>">
-                                <?= htmlspecialchars($tag['name']) ?>
-                            </span>
-                        </label>
-                        <?php endforeach; ?>
-                    </div>
-                </div>
-
-                <!-- Quill Editor -->
-                <input type="hidden" name="content" value="">
-                <div class="flex-1 bg-white dark:bg-gray-800">
-                    <div id="editor"><?= $selectedDoc['content'] ?? '' ?></div>
-                </div>
-            </form>
-
-            <link href="https://cdn.quilljs.com/1.3.7/quill.snow.css" rel="stylesheet">
-            <script src="https://cdn.quilljs.com/1.3.7/quill.min.js"></script>
-            <script>
-            var quill = new Quill('#editor', {
-                theme: 'snow',
-                placeholder: 'Start writing...',
-                modules: {
-                    toolbar: [
-                        [{ 'header': [1, 2, 3, false] }],
-                        ['bold', 'italic', 'underline'],
-                        [{ 'list': 'ordered'}, { 'list': 'bullet' }],
-                        ['link'],
-                        ['clean']
-                    ]
-                }
-            });
-            document.getElementById('docForm').onsubmit = function() {
-                document.querySelector('input[name="content"]').value = quill.root.innerHTML;
-            };
-            </script>
-            <style>
-            .ql-container { font-size: 16px; border: none !important; }
-            .ql-editor { min-height: 400px; line-height: 1.6; }
-            .ql-toolbar { border-left: none !important; border-right: none !important; border-top: none !important; background: #f9fafb; }
-            .dark .ql-toolbar { background: #374151; }
-            .dark .ql-stroke { stroke: #d1d5db !important; }
-            .dark .ql-fill { fill: #d1d5db !important; }
-            .dark .ql-picker-label { color: #d1d5db !important; }
-            .dark .ql-editor { color: #f3f4f6; }
-            </style>
-
-            <?php else: ?>
-            <!-- View Mode -->
-            <div class="h-full flex flex-col">
-                <!-- View Header -->
-                <div class="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-4">
-                    <div class="flex items-start justify-between">
-                        <div>
-                            <h1 class="text-2xl font-bold text-gray-900 dark:text-white"><?= htmlspecialchars($selectedDoc['title']) ?></h1>
-                            <div class="flex items-center gap-3 mt-2">
-                                <span class="text-sm text-gray-500 dark:text-gray-400">
-                                    <?= htmlspecialchars($selectedDoc['author_name'] ?? 'Unknown') ?> · <?= date('M j, Y', strtotime($selectedDoc['updated_at'] ?? $selectedDoc['created_at'])) ?>
-                                </span>
-                                <?php foreach ($selectedDoc['tags'] as $tag): ?>
-                                <span class="text-xs px-2 py-1 rounded-full <?= $tagColors[$tag['color']] ?? $tagColors['gray'] ?>"><?= htmlspecialchars($tag['name']) ?></span>
-                                <?php endforeach; ?>
-                            </div>
-                        </div>
-                        <div class="flex items-center gap-2">
-                            <a href="/doc?id=<?= $selectedDoc['id'] ?>" class="text-gray-500 hover:text-gray-700 dark:hover:text-gray-300" title="Open full page">
-                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
-                                </svg>
-                            </a>
-                            <a href="/docs?id=<?= $selectedDoc['id'] ?>&edit=1" class="bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium py-1.5 px-4 rounded">Edit</a>
-                            <form method="POST" class="inline" onsubmit="return confirm('Delete this document?')">
-                                <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken) ?>">
-                                <input type="hidden" name="action" value="delete_doc">
-                                <input type="hidden" name="doc_id" value="<?= $selectedDoc['id'] ?>">
-                                <button type="submit" class="text-red-600 hover:text-red-700 dark:text-red-400 text-sm">Delete</button>
-                            </form>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Content -->
-                <div class="flex-1 overflow-y-auto">
-                    <div class="bg-white dark:bg-gray-800 min-h-full">
-                        <?php if ($selectedDoc['content']): ?>
-                        <div class="prose dark:prose-invert max-w-none p-6">
-                            <?= $selectedDoc['content'] ?>
-                        </div>
-                        <?php else: ?>
-                        <div class="p-6 text-center text-gray-500 dark:text-gray-400">
-                            <p>No content yet.</p>
-                            <a href="/docs?id=<?= $selectedDoc['id'] ?>&edit=1" class="text-blue-600 hover:text-blue-700">Add content</a>
-                        </div>
-                        <?php endif; ?>
-                    </div>
-                </div>
-            </div>
-            <?php endif; ?>
-
-        <?php else: ?>
-        <!-- Empty State -->
-        <div class="h-full flex items-center justify-center">
-            <div class="text-center">
-                <svg class="w-16 h-16 mx-auto text-gray-300 dark:text-gray-600 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
-                </svg>
-                <h2 class="text-xl font-medium text-gray-900 dark:text-white mb-2">Knowledge Base</h2>
-                <p class="text-gray-500 dark:text-gray-400 mb-4">Select a document or create a new one.</p>
-                <button onclick="document.getElementById('newDocModal').classList.remove('hidden')"
-                    class="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-md">
-                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
-                    </svg>
-                    New Document
-                </button>
-            </div>
-        </div>
-        <?php endif; ?>
+    <div class="flex items-center gap-2">
+        <button onclick="openModal('manage-tags-modal')" class="btn-secondary">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.75"><path stroke-linecap="round" stroke-linejoin="round" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"/></svg>
+            Tags
+        </button>
+        <button data-shortcut="new" onclick="openModal('new-doc-modal')" class="btn-primary">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/></svg>
+            New Doc
+        </button>
     </div>
 </div>
 
-<!-- New Document Modal -->
-<div id="newDocModal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-    <div class="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6 w-full max-w-md">
-        <div class="flex items-center justify-between mb-4">
-            <h2 class="text-lg font-medium text-gray-900 dark:text-white">New Document</h2>
-            <button onclick="document.getElementById('newDocModal').classList.add('hidden')" class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 text-2xl">&times;</button>
+<!-- Tag filters -->
+<div class="flex flex-wrap items-center gap-2 mb-6">
+    <a href="/docs" class="filter-pill <?= !$filterTag ? 'filter-pill-active' : '' ?>">All</a>
+    <?php foreach ($allTags as $tag): ?>
+        <a href="?tag=<?= $tag['id'] ?>" class="filter-pill <?= $filterTag == $tag['id'] ? 'filter-pill-active' : '' ?>">
+            <span class="w-1.5 h-1.5 rounded-full bg-<?= htmlspecialchars($tag['color']) ?>-500 mr-1.5"></span>
+            <?= htmlspecialchars($tag['name']) ?>
+        </a>
+    <?php endforeach; ?>
+</div>
+
+<!-- Split panel -->
+<div class="card overflow-hidden">
+    <div class="grid grid-cols-1 md:grid-cols-[320px_1fr] min-h-[calc(100vh-320px)]">
+
+        <!-- Doc list -->
+        <aside class="border-b md:border-b-0 md:border-r border-slate-200 dark:border-slate-800 flex flex-col">
+            <?php if (empty($allDocs)): ?>
+                <div class="p-8 text-center text-sm text-slate-500 dark:text-slate-400">
+                    No documents yet
+                </div>
+            <?php else: ?>
+            <ul class="divide-y divide-slate-200 dark:divide-slate-800 overflow-y-auto max-h-[500px] md:max-h-[calc(100vh-320px)]">
+                <?php foreach ($allDocs as $doc):
+                    $isSelected = $doc['id'] == $selectedDocId;
+                    $tags = $docTags[$doc['id']] ?? [];
+                ?>
+                <li>
+                    <a href="?id=<?= $doc['id'] ?><?= $filterTag ? '&tag='.$filterTag : '' ?>"
+                       class="block px-4 py-3 transition-colors <?= $isSelected ? 'bg-indigo-50 dark:bg-indigo-950/30 border-l-2 border-l-indigo-500' : 'hover:bg-slate-50 dark:hover:bg-slate-800/50' ?>">
+                        <div class="text-sm font-medium text-slate-900 dark:text-white truncate"><?= htmlspecialchars($doc['title']) ?></div>
+                        <div class="flex items-center gap-1.5 mt-1 flex-wrap">
+                            <span class="text-xs text-slate-500 dark:text-slate-400"><?= date('M j', strtotime($doc['updated_at'] ?? $doc['created_at'])) ?></span>
+                            <?php foreach (array_slice($tags, 0, 2) as $tag): ?>
+                                <span class="pill-<?= htmlspecialchars($tag['color']) ?> !text-[10px] !py-0.5 !px-1.5"><?= htmlspecialchars($tag['name']) ?></span>
+                            <?php endforeach; ?>
+                            <?php if (count($tags) > 2): ?>
+                                <span class="text-xs text-slate-400">+<?= count($tags) - 2 ?></span>
+                            <?php endif; ?>
+                        </div>
+                    </a>
+                </li>
+                <?php endforeach; ?>
+            </ul>
+            <?php endif; ?>
+            <div class="px-4 py-2 border-t border-slate-200 dark:border-slate-800 text-xs text-slate-500 dark:text-slate-400 mt-auto">
+                <?= count($allDocs) ?> document<?= count($allDocs) !== 1 ? 's' : '' ?>
+            </div>
+        </aside>
+
+        <!-- Doc content -->
+        <section class="min-w-0">
+            <?php if (!$selectedDoc): ?>
+                <div class="h-full flex items-center justify-center p-12 min-h-[400px]">
+                    <div class="text-center">
+                        <div class="w-12 h-12 mx-auto rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center mb-4">
+                            <svg class="w-6 h-6 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/></svg>
+                        </div>
+                        <h3 class="text-sm font-semibold text-slate-900 dark:text-white">Select a document</h3>
+                        <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Or create a new one to get started.</p>
+                        <button onclick="openModal('new-doc-modal')" class="btn-primary mt-4">New Doc</button>
+                    </div>
+                </div>
+            <?php elseif ($editMode): ?>
+                <!-- Edit mode -->
+                <form method="POST" id="doc-form" class="flex flex-col min-h-[400px]">
+                    <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrf) ?>">
+                    <input type="hidden" name="action" value="save_doc">
+                    <input type="hidden" name="doc_id" value="<?= $selectedDoc['id'] ?>">
+                    <input type="hidden" name="content" id="doc-content-hidden">
+
+                    <div class="px-5 py-3 border-b border-slate-200 dark:border-slate-800">
+                        <div class="flex items-center gap-3 mb-3">
+                            <input type="text" name="title" value="<?= htmlspecialchars($selectedDoc['title']) ?>" required
+                                   class="!text-lg !font-semibold !border-transparent !bg-transparent !px-0 focus:!bg-white dark:focus:!bg-slate-800 focus:!px-3 focus:!border-slate-200 dark:focus:!border-slate-700"
+                                   placeholder="Document title">
+                            <a href="/docs?id=<?= $selectedDoc['id'] ?>" class="btn-secondary flex-shrink-0">Cancel</a>
+                            <button type="submit" class="btn-primary flex-shrink-0">Save</button>
+                        </div>
+                        <div class="flex items-center gap-3 flex-wrap mb-2">
+                            <span class="text-xs text-slate-500 dark:text-slate-400">Project:</span>
+                            <select name="project_id" class="!w-auto !py-1 !text-xs">
+                                <option value="">No Project</option>
+                                <?php foreach ($projects as $p): ?>
+                                    <option value="<?= $p['id'] ?>" <?= $selectedDoc['project_id'] == $p['id'] ? 'selected' : '' ?>><?= htmlspecialchars($p['display_name']) ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <div class="flex items-center gap-2 flex-wrap">
+                            <span class="text-xs text-slate-500 dark:text-slate-400">Tags:</span>
+                            <?php foreach ($allTags as $tag):
+                                $isTagged = false;
+                                foreach ($selectedDoc['tags'] as $t) if ($t['id'] == $tag['id']) $isTagged = true;
+                            ?>
+                            <label class="cursor-pointer">
+                                <input type="checkbox" name="tags[]" value="<?= $tag['id'] ?>" <?= $isTagged ? 'checked' : '' ?> class="sr-only peer">
+                                <span class="pill-<?= htmlspecialchars($tag['color']) ?> peer-checked:ring-2 peer-checked:ring-indigo-500 peer-checked:ring-offset-1 dark:peer-checked:ring-offset-slate-900">
+                                    <?= htmlspecialchars($tag['name']) ?>
+                                </span>
+                            </label>
+                            <?php endforeach; ?>
+                        </div>
+                    </div>
+
+                    <div id="editor" class="flex-1 min-h-[400px]"><?= $selectedDoc['content'] ?? '' ?></div>
+                </form>
+
+                <link href="https://cdn.quilljs.com/1.3.7/quill.snow.css" rel="stylesheet">
+                <script src="https://cdn.quilljs.com/1.3.7/quill.min.js"></script>
+                <script>
+                    const quill = new Quill('#editor', {
+                        theme: 'snow',
+                        placeholder: 'Start writing...',
+                        modules: { toolbar: [
+                            [{ 'header': [1, 2, 3, false] }],
+                            ['bold', 'italic', 'underline', 'strike'],
+                            [{ 'list': 'ordered'}, { 'list': 'bullet' }],
+                            ['blockquote', 'code-block'],
+                            ['link'],
+                            ['clean']
+                        ]}
+                    });
+                    document.getElementById('doc-form').onsubmit = function() {
+                        document.getElementById('doc-content-hidden').value = quill.root.innerHTML;
+                    };
+                </script>
+            <?php else: ?>
+                <!-- View mode -->
+                <article class="flex flex-col min-h-[400px]">
+                    <header class="px-5 md:px-8 py-5 border-b border-slate-200 dark:border-slate-800">
+                        <div class="flex items-start justify-between gap-4">
+                            <div class="min-w-0">
+                                <h1 class="text-2xl font-semibold tracking-tight text-slate-900 dark:text-white"><?= htmlspecialchars($selectedDoc['title']) ?></h1>
+                                <div class="mt-2 flex items-center gap-2 flex-wrap text-xs text-slate-500 dark:text-slate-400">
+                                    <span><?= htmlspecialchars($selectedDoc['author_first'] ?: $selectedDoc['author_name'] ?? 'Unknown') ?></span>
+                                    <span>·</span>
+                                    <span><?= date('M j, Y', strtotime($selectedDoc['updated_at'] ?? $selectedDoc['created_at'])) ?></span>
+                                    <?php if ($selectedDoc['project_name']): ?>
+                                        <span class="pill-<?= htmlspecialchars($selectedDoc['project_color'] ?? 'slate') ?>"><?= htmlspecialchars($selectedDoc['project_name']) ?></span>
+                                    <?php endif; ?>
+                                    <?php foreach ($selectedDoc['tags'] as $tag): ?>
+                                        <span class="pill-<?= htmlspecialchars($tag['color']) ?>"><?= htmlspecialchars($tag['name']) ?></span>
+                                    <?php endforeach; ?>
+                                </div>
+                            </div>
+                            <div class="flex items-center gap-2 flex-shrink-0">
+                                <a href="/doc?id=<?= $selectedDoc['id'] ?>" class="btn-ghost p-2" title="Open full page">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.75"><path stroke-linecap="round" stroke-linejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
+                                </a>
+                                <a href="?id=<?= $selectedDoc['id'] ?>&edit=1" class="btn-primary">Edit</a>
+                                <form method="POST" onsubmit="return confirm('Delete this document?');">
+                                    <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrf) ?>">
+                                    <input type="hidden" name="action" value="delete_doc">
+                                    <input type="hidden" name="doc_id" value="<?= $selectedDoc['id'] ?>">
+                                    <button type="submit" class="btn-ghost text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40" title="Delete">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.75"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M1 7h22M8 7V5a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+                                    </button>
+                                </form>
+                            </div>
+                        </div>
+                    </header>
+
+                    <div class="px-5 md:px-8 py-6">
+                        <?php if ($selectedDoc['content']): ?>
+                            <div class="prose-content"><?= $selectedDoc['content'] ?></div>
+                        <?php else: ?>
+                            <div class="text-center py-12">
+                                <p class="text-slate-500 dark:text-slate-400">No content yet.</p>
+                                <a href="?id=<?= $selectedDoc['id'] ?>&edit=1" class="btn-primary mt-3 inline-flex">Add content</a>
+                            </div>
+                        <?php endif; ?>
+                    </div>
+                </article>
+            <?php endif; ?>
+        </section>
+    </div>
+</div>
+
+<!-- New Doc Modal -->
+<div id="new-doc-modal" data-modal class="modal-backdrop hidden">
+    <div class="modal-panel" onclick="event.stopPropagation()">
+        <div class="flex items-center justify-between px-5 py-4 border-b border-slate-200 dark:border-slate-800">
+            <h3 class="text-base font-semibold text-slate-900 dark:text-white">New Document</h3>
+            <button onclick="closeModal('new-doc-modal')" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+            </button>
         </div>
-        <form method="POST">
-            <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken) ?>">
+        <form method="POST" class="p-5 space-y-4">
+            <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrf) ?>">
             <input type="hidden" name="action" value="create_doc">
             <div>
-                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Title</label>
-                <input type="text" name="title" required class="w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-md px-3 py-2" placeholder="Document title" autofocus>
+                <label class="form-label">Title</label>
+                <input type="text" name="title" required placeholder="Document title">
             </div>
-            <div class="mt-6 flex gap-2 justify-end">
-                <button type="button" onclick="document.getElementById('newDocModal').classList.add('hidden')" class="px-4 py-2 bg-gray-200 dark:bg-gray-600 dark:text-white rounded-md">Cancel</button>
-                <button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded-md">Create</button>
+            <div class="flex items-center justify-end gap-2 pt-2 border-t border-slate-200 dark:border-slate-800">
+                <button type="button" onclick="closeModal('new-doc-modal')" class="btn-secondary">Cancel</button>
+                <button type="submit" class="btn-primary">Create</button>
             </div>
         </form>
     </div>
 </div>
 
 <!-- Manage Tags Modal -->
-<div id="manageTagsModal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-    <div class="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6 w-full max-w-md">
-        <div class="flex items-center justify-between mb-4">
-            <h2 class="text-lg font-medium text-gray-900 dark:text-white">Manage Tags</h2>
-            <button onclick="document.getElementById('manageTagsModal').classList.add('hidden')" class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 text-2xl">&times;</button>
+<div id="manage-tags-modal" data-modal class="modal-backdrop hidden">
+    <div class="modal-panel" onclick="event.stopPropagation()">
+        <div class="flex items-center justify-between px-5 py-4 border-b border-slate-200 dark:border-slate-800">
+            <h3 class="text-base font-semibold text-slate-900 dark:text-white">Tags</h3>
+            <button onclick="closeModal('manage-tags-modal')" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+            </button>
         </div>
-
-        <!-- Existing Tags -->
-        <div class="mb-4 space-y-2">
-            <?php foreach ($allTags as $tag): ?>
-            <div class="flex items-center justify-between py-2 px-3 bg-gray-50 dark:bg-gray-700 rounded">
-                <span class="text-sm px-2 py-1 rounded-full <?= $tagColors[$tag['color']] ?? $tagColors['gray'] ?>"><?= htmlspecialchars($tag['name']) ?></span>
-                <form method="POST" class="inline" onsubmit="return confirm('Delete this tag?')">
-                    <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken) ?>">
-                    <input type="hidden" name="action" value="delete_tag">
-                    <input type="hidden" name="tag_id" value="<?= $tag['id'] ?>">
-                    <button type="submit" class="text-red-500 hover:text-red-700 text-sm">Delete</button>
-                </form>
-            </div>
-            <?php endforeach; ?>
+        <div class="p-5">
             <?php if (empty($allTags)): ?>
-            <p class="text-sm text-gray-500 dark:text-gray-400">No tags yet</p>
+                <p class="text-sm text-slate-500 dark:text-slate-400 text-center py-6">No tags yet. Create one below.</p>
+            <?php else: ?>
+                <ul class="space-y-1 mb-4">
+                    <?php foreach ($allTags as $tag): ?>
+                    <li class="flex items-center justify-between px-3 py-2 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                        <span class="pill-<?= htmlspecialchars($tag['color']) ?>"><?= htmlspecialchars($tag['name']) ?></span>
+                        <form method="POST" onsubmit="return confirm('Delete this tag?')">
+                            <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrf) ?>">
+                            <input type="hidden" name="action" value="delete_tag">
+                            <input type="hidden" name="tag_id" value="<?= $tag['id'] ?>">
+                            <button type="submit" class="p-1 text-slate-400 hover:text-rose-500" title="Delete tag">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.75"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M1 7h22M8 7V5a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+                            </button>
+                        </form>
+                    </li>
+                    <?php endforeach; ?>
+                </ul>
             <?php endif; ?>
-        </div>
 
-        <!-- Add New Tag -->
-        <form method="POST" class="border-t border-gray-200 dark:border-gray-600 pt-4">
-            <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken) ?>">
-            <input type="hidden" name="action" value="add_tag">
-            <div class="flex gap-2">
-                <input type="text" name="tag_name" required class="flex-1 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-md px-3 py-2 text-sm" placeholder="New tag name">
-                <select name="tag_color" class="border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-md px-2 py-2 text-sm">
-                    <option value="gray">Gray</option>
-                    <option value="blue">Blue</option>
-                    <option value="green">Green</option>
-                    <option value="purple">Purple</option>
-                    <option value="orange">Orange</option>
-                    <option value="red">Red</option>
-                    <option value="yellow">Yellow</option>
-                </select>
-                <button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded-md text-sm">Add</button>
-            </div>
-        </form>
+            <form method="POST" class="pt-4 border-t border-slate-200 dark:border-slate-800">
+                <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrf) ?>">
+                <input type="hidden" name="action" value="add_tag">
+                <h4 class="section-label mb-2">New Tag</h4>
+                <div class="flex items-start gap-2">
+                    <input type="text" name="tag_name" required placeholder="Tag name" class="flex-1">
+                    <select name="tag_color" class="w-28 flex-shrink-0">
+                        <option value="slate">Slate</option>
+                        <option value="indigo">Indigo</option>
+                        <option value="emerald">Emerald</option>
+                        <option value="amber">Amber</option>
+                        <option value="rose">Rose</option>
+                        <option value="blue">Blue</option>
+                        <option value="purple">Purple</option>
+                    </select>
+                    <button type="submit" class="btn-primary flex-shrink-0">Add</button>
+                </div>
+            </form>
+        </div>
     </div>
 </div>
 
-<style>
-.prose h1 { font-size: 2em; font-weight: bold; margin-bottom: 0.5em; }
-.prose h2 { font-size: 1.5em; font-weight: bold; margin-bottom: 0.5em; margin-top: 1em; }
-.prose h3 { font-size: 1.25em; font-weight: bold; margin-bottom: 0.5em; margin-top: 1em; }
-.prose p { margin-bottom: 1em; line-height: 1.6; }
-.prose ul, .prose ol { margin-bottom: 1em; padding-left: 1.5em; }
-.prose ul { list-style-type: disc; }
-.prose ol { list-style-type: decimal; }
-.prose li { margin-bottom: 0.25em; }
-.prose blockquote { border-left: 4px solid #e5e7eb; padding-left: 1em; color: #6b7280; margin: 1em 0; }
-.prose pre { background: #1f2937; color: #f9fafb; padding: 1em; border-radius: 0.5em; overflow-x: auto; }
-.prose code { background: #f3f4f6; padding: 0.125em 0.25em; border-radius: 0.25em; font-size: 0.875em; }
-.prose a { color: #2563eb; text-decoration: underline; }
-.prose table { width: 100%; border-collapse: collapse; margin: 1em 0; }
-.prose th, .prose td { border: 1px solid #e5e7eb; padding: 0.5em; text-align: left; }
-.prose th { background: #f9fafb; font-weight: 600; }
-.dark .prose { color: #f3f4f6; }
-.dark .prose h1, .dark .prose h2, .dark .prose h3 { color: #f3f4f6; }
-.dark .prose code { background: #374151; color: #f3f4f6; }
-.dark .prose th { background: #374151; }
-.dark .prose th, .dark .prose td { border-color: #4b5563; }
-</style>
-
-<?php include 'includes/dashboard-footer.php'; ?>
+<?php layout_end(); ?>

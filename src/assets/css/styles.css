@@ -1,56 +1,379 @@
 @import "tailwindcss";
 @plugin "@tailwindcss/typography";
 
-/* Dark mode configuration */
+/* ============================================================
+   Adminability v3 - Design System
+   ============================================================ */
+
 @custom-variant dark (&:where(.dark, .dark *));
 
-/* Custom dark mode styles */
-.dark body {
-    background-color: #111827;
+/* Safelist dynamic colors (composed at runtime from DB values) */
+@source inline("bg-slate-500 bg-indigo-500 bg-emerald-500 bg-amber-500 bg-rose-500 bg-blue-500 bg-purple-500 bg-orange-500 bg-green-500 bg-red-500 bg-yellow-500 bg-gray-500 bg-amber-400");
+@source inline("text-blue-600 text-purple-600 text-indigo-600 text-amber-600 text-emerald-600 text-orange-600 text-green-600 text-red-600 text-yellow-600");
+@source inline("dark:text-blue-400 dark:text-purple-400 dark:text-indigo-400 dark:text-amber-400 dark:text-emerald-400 dark:text-orange-400 dark:text-green-400 dark:text-red-400 dark:text-yellow-400");
+@source inline("pill-slate pill-indigo pill-emerald pill-amber pill-rose pill-blue pill-purple pill-orange pill-green pill-red pill-yellow pill-gray");
+
+/* ------------------------------------------------------------
+   Base styles
+   ------------------------------------------------------------ */
+@layer base {
+    html {
+        font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+        text-rendering: optimizeLegibility;
+    }
+
+    body {
+        @apply bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100;
+        font-feature-settings: 'cv11', 'ss01';
+    }
+
+    /* Consistent focus ring across the app */
+    *:focus-visible {
+        @apply outline-none ring-2 ring-indigo-500/40 ring-offset-2 ring-offset-white dark:ring-offset-slate-950 rounded-md;
+    }
+
+    /* Form inputs: base styling for both modes */
+    input:not([type="checkbox"]):not([type="radio"]):not([type="submit"]):not([type="button"]),
+    select,
+    textarea {
+        @apply w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800
+               text-slate-900 dark:text-slate-100 rounded-lg px-3 py-2 text-sm
+               placeholder:text-slate-400 dark:placeholder:text-slate-500
+               focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500 dark:focus:border-indigo-500
+               transition-colors duration-150;
+    }
+
+    /* Checkbox and radio styling */
+    input[type="checkbox"],
+    input[type="radio"] {
+        @apply accent-indigo-500 cursor-pointer;
+    }
+
+    /* Scrollbar styling */
+    ::-webkit-scrollbar {
+        width: 10px;
+        height: 10px;
+    }
+    ::-webkit-scrollbar-track {
+        @apply bg-transparent;
+    }
+    ::-webkit-scrollbar-thumb {
+        @apply bg-slate-300 dark:bg-slate-700 rounded-full;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+        @apply bg-slate-400 dark:bg-slate-600;
+    }
 }
 
-/* Dark mode form inputs */
-.dark input:not([type="checkbox"]):not([type="radio"]),
-.dark select,
-.dark textarea {
-    background-color: #374151;
-    border-color: #4b5563;
-    color: #f3f4f6;
+/* ------------------------------------------------------------
+   Component primitives
+   ------------------------------------------------------------ */
+@layer components {
+
+    /* Card surface */
+    .card {
+        @apply bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl;
+    }
+
+    .card-hover {
+        @apply hover:border-slate-300 dark:hover:border-slate-700 transition-colors duration-150;
+    }
+
+    /* Section label (small uppercase) */
+    .section-label {
+        @apply text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400;
+    }
+
+    /* Button variants */
+    .btn-base {
+        @apply inline-flex items-center justify-center gap-2 px-3.5 py-2 text-sm font-medium rounded-lg
+               transition-all duration-150 focus:outline-none focus:ring-2 focus:ring-offset-2
+               focus:ring-offset-white dark:focus:ring-offset-slate-950 disabled:opacity-50 disabled:cursor-not-allowed;
+    }
+
+    .btn-primary {
+        @apply inline-flex items-center justify-center gap-2 px-3.5 py-2 text-sm font-medium rounded-lg
+               transition-all duration-150 focus:outline-none focus:ring-2 focus:ring-offset-2
+               focus:ring-offset-white dark:focus:ring-offset-slate-950 disabled:opacity-50 disabled:cursor-not-allowed
+               bg-indigo-600 hover:bg-indigo-500 text-white shadow-sm
+               focus:ring-indigo-500/40 active:bg-indigo-700;
+    }
+
+    .btn-secondary {
+        @apply inline-flex items-center justify-center gap-2 px-3.5 py-2 text-sm font-medium rounded-lg
+               transition-all duration-150 focus:outline-none focus:ring-2 focus:ring-offset-2
+               focus:ring-offset-white dark:focus:ring-offset-slate-950 disabled:opacity-50 disabled:cursor-not-allowed
+               bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200
+               border border-slate-200 dark:border-slate-800
+               hover:bg-slate-50 dark:hover:bg-slate-800 focus:ring-slate-500/20;
+    }
+
+    .btn-ghost {
+        @apply inline-flex items-center justify-center gap-2 px-3.5 py-2 text-sm font-medium rounded-lg
+               transition-all duration-150 focus:outline-none focus:ring-2 focus:ring-offset-2
+               focus:ring-offset-white dark:focus:ring-offset-slate-950 disabled:opacity-50 disabled:cursor-not-allowed
+               bg-transparent text-slate-600 dark:text-slate-400
+               hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white
+               focus:ring-slate-500/20;
+    }
+
+    .btn-danger {
+        @apply inline-flex items-center justify-center gap-2 px-3.5 py-2 text-sm font-medium rounded-lg
+               transition-all duration-150 focus:outline-none focus:ring-2 focus:ring-offset-2
+               focus:ring-offset-white dark:focus:ring-offset-slate-950 disabled:opacity-50 disabled:cursor-not-allowed
+               bg-rose-600 hover:bg-rose-500 text-white shadow-sm focus:ring-rose-500/40;
+    }
+
+    /* Sidebar nav item */
+    .nav-item {
+        @apply flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-lg
+               text-slate-600 dark:text-slate-400
+               hover:bg-slate-100 dark:hover:bg-slate-800/60 hover:text-slate-900 dark:hover:text-white
+               transition-colors duration-150;
+    }
+
+    .nav-item-active {
+        @apply bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white;
+    }
+
+    /* Pill (tag, filter, badge) — base utility, use via pill-* variants below */
+
+    .pill-slate { @apply inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300; }
+    .pill-indigo { @apply inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md bg-indigo-50 text-indigo-700 dark:bg-indigo-950/50 dark:text-indigo-300; }
+    .pill-emerald { @apply inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300; }
+    .pill-amber { @apply inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md bg-amber-50 text-amber-800 dark:bg-amber-950/50 dark:text-amber-300; }
+    .pill-rose { @apply inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md bg-rose-50 text-rose-700 dark:bg-rose-950/50 dark:text-rose-300; }
+    .pill-blue { @apply inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md bg-blue-50 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300; }
+    .pill-purple { @apply inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md bg-purple-50 text-purple-700 dark:bg-purple-950/50 dark:text-purple-300; }
+    .pill-orange { @apply inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md bg-orange-50 text-orange-700 dark:bg-orange-950/50 dark:text-orange-300; }
+    .pill-gray { @apply inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300; }
+    .pill-green { @apply inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300; }
+    .pill-yellow { @apply inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md bg-amber-50 text-amber-800 dark:bg-amber-950/50 dark:text-amber-300; }
+    .pill-red { @apply inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md bg-rose-50 text-rose-700 dark:bg-rose-950/50 dark:text-rose-300; }
+
+    /* Filter pill (clickable) */
+    .filter-pill {
+        @apply inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-full
+               bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800
+               text-slate-600 dark:text-slate-400
+               hover:bg-slate-50 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white
+               transition-colors duration-150;
+    }
+
+    .filter-pill-active {
+        @apply bg-slate-900 dark:bg-white text-white dark:text-slate-900 border-slate-900 dark:border-white;
+    }
+
+    /* Avatar (user initials) */
+    .avatar {
+        @apply inline-flex items-center justify-center w-7 h-7 rounded-full
+               text-xs font-semibold text-white;
+    }
+
+    /* Status dot styles are applied inline via Tailwind utility classes in templates */
+
+    /* Modal backdrop */
+    .modal-backdrop {
+        @apply fixed inset-0 z-50 bg-slate-900/50 dark:bg-slate-950/75 backdrop-blur-sm
+               flex items-center justify-center p-4;
+    }
+
+    .modal-panel {
+        @apply w-full max-w-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800
+               rounded-2xl shadow-xl max-h-[90vh] overflow-y-auto;
+    }
+
+    /* Input label */
+    .form-label {
+        @apply block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5;
+    }
+
+    /* Progress bar */
+    .progress {
+        @apply w-full h-1.5 bg-slate-200 dark:bg-slate-800 rounded-full overflow-hidden;
+    }
+
+    .progress-bar {
+        @apply h-full bg-indigo-500 rounded-full transition-all duration-300;
+    }
 }
 
-.dark input:focus,
-.dark select:focus,
-.dark textarea:focus {
-    border-color: #3b82f6;
+/* ------------------------------------------------------------
+   Prose (Knowledge Base content rendering)
+   ------------------------------------------------------------ */
+.prose-content {
+    @apply text-slate-700 dark:text-slate-300 leading-relaxed;
 }
+.prose-content h1 { @apply text-2xl font-bold mt-6 mb-3 text-slate-900 dark:text-white; }
+.prose-content h2 { @apply text-xl font-semibold mt-5 mb-2.5 text-slate-900 dark:text-white; }
+.prose-content h3 { @apply text-lg font-semibold mt-4 mb-2 text-slate-900 dark:text-white; }
+.prose-content p { @apply mb-4; }
+.prose-content ul { @apply list-disc pl-6 mb-4 space-y-1; }
+.prose-content ol { @apply list-decimal pl-6 mb-4 space-y-1; }
+.prose-content a { @apply text-indigo-600 dark:text-indigo-400 hover:underline; }
+.prose-content blockquote {
+    @apply border-l-4 border-slate-300 dark:border-slate-700 pl-4 my-4 italic text-slate-600 dark:text-slate-400;
+}
+.prose-content code {
+    @apply bg-slate-100 dark:bg-slate-800 text-rose-600 dark:text-rose-400 px-1.5 py-0.5 rounded text-sm;
+}
+.prose-content pre {
+    @apply bg-slate-900 dark:bg-slate-950 text-slate-100 p-4 rounded-lg overflow-x-auto my-4 text-sm;
+}
+.prose-content pre code { @apply bg-transparent text-inherit p-0; }
+.prose-content strong { @apply font-semibold text-slate-900 dark:text-white; }
+.prose-content img { @apply rounded-lg max-w-full my-4; }
+.prose-content hr { @apply border-slate-200 dark:border-slate-800 my-6; }
 
-/* Dark mode for Quill editor */
+/* ------------------------------------------------------------
+   Quill editor (dark mode overrides)
+   ------------------------------------------------------------ */
+.ql-toolbar.ql-snow {
+    border-color: rgb(226 232 240) !important;
+    border-top-left-radius: 0.5rem;
+    border-top-right-radius: 0.5rem;
+}
+.dark .ql-toolbar.ql-snow { border-color: rgb(30 41 59) !important; }
+
+.ql-container.ql-snow {
+    border-color: rgb(226 232 240) !important;
+    border-bottom-left-radius: 0.5rem;
+    border-bottom-right-radius: 0.5rem;
+}
+.dark .ql-container.ql-snow { border-color: rgb(30 41 59) !important; }
+
 .dark .ql-toolbar {
-    background-color: #374151;
-    border-color: #4b5563 !important;
+    @apply bg-slate-900;
+}
+.dark .ql-toolbar .ql-stroke { stroke: #cbd5e1; }
+.dark .ql-toolbar .ql-fill { fill: #cbd5e1; }
+.dark .ql-toolbar .ql-picker-label { color: #cbd5e1; }
+.dark .ql-toolbar button:hover .ql-stroke,
+.dark .ql-toolbar button.ql-active .ql-stroke { stroke: #818cf8; }
+.dark .ql-toolbar button:hover .ql-fill,
+.dark .ql-toolbar button.ql-active .ql-fill { fill: #818cf8; }
+.dark .ql-container { @apply bg-slate-900; }
+.dark .ql-editor { @apply text-slate-100; }
+.dark .ql-editor.ql-blank::before { color: #64748b; }
+.dark .ql-picker-options { background-color: rgb(30 41 59) !important; border-color: rgb(51 65 85) !important; }
+.dark .ql-snow .ql-picker-options .ql-picker-item { color: #cbd5e1; }
+
+/* ------------------------------------------------------------
+   Animations
+   ------------------------------------------------------------ */
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(4px); }
+    to { opacity: 1; transform: translateY(0); }
 }
 
-.dark .ql-toolbar .ql-stroke {
-    stroke: #d1d5db;
+@keyframes slideInRight {
+    from { opacity: 0; transform: translateX(12px); }
+    to { opacity: 1; transform: translateX(0); }
 }
 
-.dark .ql-toolbar .ql-fill {
-    fill: #d1d5db;
+.animate-fade-in { animation: fadeIn 150ms ease-out; }
+.animate-slide-in-right { animation: slideInRight 200ms ease-out; }
+
+/* Toast container positioning */
+.toast-container {
+    @apply fixed bottom-6 right-6 z-[100] flex flex-col gap-2 pointer-events-none;
 }
 
-.dark .ql-toolbar .ql-picker-label {
-    color: #d1d5db;
+.toast {
+    @apply pointer-events-auto flex items-center gap-3 px-4 py-3 rounded-lg shadow-lg
+           bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800
+           text-sm font-medium text-slate-900 dark:text-slate-100 min-w-[240px] max-w-md;
+    animation: slideInRight 200ms ease-out;
 }
 
-.dark .ql-container {
-    border-color: #4b5563 !important;
+.toast-success { @apply border-l-4 border-l-emerald-500; }
+.toast-error { @apply border-l-4 border-l-rose-500; }
+.toast-info { @apply border-l-4 border-l-indigo-500; }
+
+/* ------------------------------------------------------------
+   Print styles
+   ------------------------------------------------------------ */
+@media print {
+    /* Force light colors for print regardless of theme */
+    html, body, main, .card {
+        background: white !important;
+        color: black !important;
+    }
+
+    /* Hide chrome that shouldn't print */
+    .no-print,
+    aside,
+    header.lg\:hidden,
+    #sidebar,
+    #sidebar-backdrop,
+    #toast-container {
+        display: none !important;
+    }
+
+    /* Let main content use full page width */
+    main {
+        height: auto !important;
+        overflow: visible !important;
+    }
+    main > div {
+        max-width: none !important;
+        padding: 0 !important;
+    }
+
+    /* Flatten the card so print isn't wasteful */
+    .print-plain {
+        border: none !important;
+        border-radius: 0 !important;
+        overflow: visible !important;
+    }
+    .print-plain li {
+        break-inside: avoid;
+        border-bottom: 1px solid #ddd !important;
+    }
+
+    /* Keep badges readable but print-friendly */
+    .timing-badge, .assignee-badge {
+        background: transparent !important;
+        color: black !important;
+        border: 1px solid #999 !important;
+    }
+
+    /* Ensure completed items still read cleanly */
+    .item-text.line-through {
+        text-decoration: line-through;
+        color: #666 !important;
+    }
 }
 
-.dark .ql-editor {
-    background-color: #1f2937;
-    color: #f3f4f6;
+/* ------------------------------------------------------------
+   Touch / mobile refinements
+   ------------------------------------------------------------ */
+/* On touch-only devices (phones/tablets), reveal controls that are otherwise
+   hidden behind :hover so the user can actually reach drag handles, delete
+   buttons, etc. This targets everything inside a brainstorm row that uses
+   Tailwind's `opacity-0 group-hover:opacity-100` pattern. */
+@media (hover: none) {
+    .brainstorm-item .opacity-0 {
+        opacity: 1 !important;
+    }
+
+    /* Slightly larger tap targets for step checkboxes on touch */
+    .brainstorm-item .step-check {
+        width: 1.25rem;   /* 20px */
+        height: 1.25rem;
+    }
+
+    /* Drag handles always slightly dimmed so they don't shout, but visible */
+    .brainstorm-item .drag-handle,
+    .brainstorm-item .step-drag-handle {
+        opacity: 0.55 !important;
+    }
 }
 
-.dark .ql-editor.ql-blank::before {
-    color: #6b7280;
+/* Narrow-mobile tweak: if the add-new form wraps, keep the Person select
+   and Add button together on the second line so Add doesn't orphan. */
+@media (max-width: 480px) {
+    #new-item-text { min-width: 100% !important; }
 }

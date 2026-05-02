@@ -22,6 +22,10 @@
         "Thumbs.db",
         ".git",
         "amember",
-        "amember/"
+        "amember/",
+        "data/adminability.db",
+        "data/adminability.db-journal",
+        "data/adminability.db-wal",
+        "data/adminability.db-shm"
     ]
 }

@@ -4,7 +4,7 @@
   "description": "",
   "scripts": {
     "build:css": "npx @tailwindcss/cli -i ./src/assets/css/styles.css -o ./dist/assets/css/styles.css",
-    "build:copy": "rsync -av --exclude='assets/css/styles.css' ./src/ ./dist/",
+    "build:copy": "rsync -av --delete-excluded --exclude='assets/css/styles.css' --exclude='data/adminability.db' --exclude='data/adminability.db-journal' --exclude='data/adminability.db-wal' --exclude='data/adminability.db-shm' ./src/ ./dist/",
     "build": "npm run clean && npm run build:css && npm run build:copy",
     "production": "npm run clean && npx @tailwindcss/cli -i ./src/assets/css/styles.css -o ./dist/assets/css/styles.css --minify && npm run build:copy",
     "clean": "rm -rf ./dist/*"

@@ -4,10 +4,19 @@
  * Session-based auth with rate limiting. No RBAC — all users are admins.
  */
 
+// App timezone (shared hosting defaults to UTC, which throws off greetings / "today" checks)
+date_default_timezone_set('America/New_York');
+
 // Session configuration (must be before session_start)
 ini_set('session.cookie_httponly', 1);
 ini_set('session.use_strict_mode', 1);
 ini_set('session.cookie_samesite', 'Strict');
+
+// Session lifetime: keep the cookie alive long enough that closing/reopening
+// the browser during the day still lands the user in an active session.
+// Actual expiry is enforced by a calendar-day check in checkSessionTimeout().
+ini_set('session.cookie_lifetime', 86400);     // 24h cookie
+ini_set('session.gc_maxlifetime', 86400);      // 24h server-side GC
 
 // Only require secure cookies in production (not on .test or localhost)
 $isLocal = (
@@ -20,23 +29,31 @@ session_start();
 
 require_once __DIR__ . '/db.php';
 
-// Session timeout (30 minutes of inactivity)
-define('SESSION_TIMEOUT', 1800);
-
 // Rate limiting settings
 define('MAX_LOGIN_ATTEMPTS', 5);
 define('LOCKOUT_DURATION', 900); // 15 minutes in seconds
 
 /**
- * Check and enforce session timeout
+ * Check and enforce session timeout.
+ * Sessions expire at the end of the calendar day they were created
+ * (America/New_York). Close/reopen the browser during the day: still logged in.
+ * Next day after midnight: logged out, must re-authenticate.
  */
 function checkSessionTimeout() {
-    if (isset($_SESSION['last_activity'])) {
-        if (time() - $_SESSION['last_activity'] > SESSION_TIMEOUT) {
-            logout();
-            return false;
-        }
+    $today = date('Y-m-d');
+
+    // Back-compat: any existing session from before this change won't have
+    // login_date set. Treat it as if they logged in today so the rollover
+    // doesn't kick everyone out the moment we deploy.
+    if (!isset($_SESSION['login_date'])) {
+        $_SESSION['login_date'] = $today;
     }
+
+    if ($_SESSION['login_date'] !== $today) {
+        logout();
+        return false;
+    }
+
     $_SESSION['last_activity'] = time();
     return true;
 }
@@ -158,6 +175,7 @@ function authenticate($email, $password) {
     $_SESSION['user_first_name'] = $user['first_name'];
     $_SESSION['last_activity'] = time();
     $_SESSION['created_at'] = time();
+    $_SESSION['login_date'] = date('Y-m-d');   // calendar-day anchor for daily-expiry check
 
     return true;
 }

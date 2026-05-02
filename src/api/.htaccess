@@ -1,0 +1,5 @@
+# API endpoints — require POST only (enforced in PHP too)
+# Deny direct access to any file except *.php
+<FilesMatch "\.(sql|db|ini|log)$">
+    Require all denied
+</FilesMatch>
